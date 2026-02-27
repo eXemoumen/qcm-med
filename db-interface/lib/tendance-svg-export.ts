@@ -56,6 +56,8 @@ function esc(text: string): string {
 
 /** Truncate text to fit approx width (rough char estimate for font-size 13) */
 function truncateText(text: string, maxChars: number): string {
+  if (maxChars <= 0) return "";
+  if (maxChars === 1) return "…";
   if (text.length <= maxChars) return text;
   return text.slice(0, maxChars - 1) + "…";
 }
@@ -171,7 +173,7 @@ export function generateTendanceSVG(opts: SvgExportOptions): string {
     (sum, g) => sum + Math.min(g.entries.length, MAX_COURSES),
     0,
   );
-  const dynamicMaxCourses = totalCourseSlots > 0
+  const dynamicMaxCourses = (numGroups > 0 && totalCourseSlots > 0)
     ? Math.max(2, Math.floor(spaceForCourses / courseRowH / numGroups))
     : MAX_COURSES;
   const effectiveMax = Math.min(MAX_COURSES, dynamicMaxCourses);
