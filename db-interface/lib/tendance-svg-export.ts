@@ -40,7 +40,6 @@ const SUB_DISC_ICONS: Record<string, string> = {
 };
 
 const BRAND_COLOR = "#09b2ac";
-const MAX_COURSES = 5;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -68,8 +67,21 @@ export function generateTendanceSVG(opts: SvgExportOptions): string {
   const { moduleName, totalQuestions, examYearsRange, totalExamYears, subDiscGroups } = opts;
 
   const W = 1080;
-  const H = 1080;
   const PAD = 48;
+  const groupHeaderH = 32;
+  const courseRowH = 36;
+  const groupGap = 20;
+  const footerReserve = 60;
+
+  // ── Pre-calculate total height based on ALL courses ────────────────
+  const headerHeight = PAD + 44 + 60 + 28; // pad + brand row + module row + divider
+  const numGroups = subDiscGroups.length;
+  const totalCourses = subDiscGroups.reduce((sum, g) => sum + g.entries.length, 0);
+  const bodyHeight =
+    numGroups * groupHeaderH +
+    totalCourses * courseRowH +
+    Math.max(0, numGroups - 1) * groupGap;
+  const H = Math.max(1080, headerHeight + bodyHeight + footerReserve + PAD);
 
   let y = PAD; // running y cursor
 
@@ -104,7 +116,7 @@ export function generateTendanceSVG(opts: SvgExportOptions): string {
       }).join("")}
     </defs>`;
 
-  // ── Background ─────────────────────────────────────────────────────
+  // ── Background (uses dynamic H) ───────────────────────────────────
   const bgElements = `
     <rect width="${W}" height="${H}" fill="url(#bg-grad)"/>
     <rect width="${W}" height="${H}" fill="url(#glow-tr)"/>
@@ -151,44 +163,21 @@ export function generateTendanceSVG(opts: SvgExportOptions): string {
   `;
   y += 28;
 
-  // ── Sub-discipline groups ──────────────────────────────────────────
+  // ── Sub-discipline groups (ALL courses, no limit) ─────────────────
   const bodyParts: string[] = [];
   const contentW = W - PAD * 2;
-
-  // Calculate available vertical space for groups
-  const footerReserve = 60;
-  const availableHeight = H - y - footerReserve;
-
-  // Determine how many courses to show per group based on space
-  const numGroups = subDiscGroups.length;
-  const groupHeaderH = 32;
-  const courseRowH = 36;
-  const groupGap = 20;
-
-  // Calculate max courses that fit
-  const totalGroupHeaders = numGroups * groupHeaderH;
-  const totalGaps = Math.max(0, numGroups - 1) * groupGap;
-  const spaceForCourses = availableHeight - totalGroupHeaders - totalGaps;
-  const totalCourseSlots = subDiscGroups.reduce(
-    (sum, g) => sum + Math.min(g.entries.length, MAX_COURSES),
-    0,
-  );
-  const dynamicMaxCourses = (numGroups > 0 && totalCourseSlots > 0)
-    ? Math.max(2, Math.floor(spaceForCourses / courseRowH / numGroups))
-    : MAX_COURSES;
-  const effectiveMax = Math.min(MAX_COURSES, dynamicMaxCourses);
 
   subDiscGroups.forEach((group, gi) => {
     const accent = SUB_DISC_ACCENT[group.sub_discipline] || BRAND_COLOR;
     const icon = SUB_DISC_ICONS[group.sub_discipline] || "📖";
-    const displayEntries = group.entries.slice(0, effectiveMax);
+    const displayEntries = group.entries; // no slicing — show all
     const maxQ = displayEntries[0]?.question_count || 1;
 
     // Group header
     bodyParts.push(`
       <text x="${PAD}" y="${y + 20}" font-size="22">${icon}</text>
       <text x="${PAD + 34}" y="${y + 20}" font-family="'Manrope','Inter','Segoe UI',sans-serif" font-size="16" font-weight="700" fill="${accent}" letter-spacing="0.5">${esc(group.sub_discipline)}</text>
-      <text x="${PAD + 34 + group.sub_discipline.length * 10 + 12}" y="${y + 20}" font-family="'Manrope','Inter','Segoe UI',sans-serif" font-size="12" font-weight="500" fill="rgba(255,255,255,0.35)">— Top ${displayEntries.length}</text>
+      <text x="${PAD + 34 + group.sub_discipline.length * 10 + 12}" y="${y + 20}" font-family="'Manrope','Inter','Segoe UI',sans-serif" font-size="12" font-weight="500" fill="rgba(255,255,255,0.35)">— ${displayEntries.length} cours</text>
     `);
     y += groupHeaderH;
 
