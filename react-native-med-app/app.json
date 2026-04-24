@@ -41,10 +41,6 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "navigationBar": {
-        "visible": "immersive",
-        "backgroundColor": "#ffffff"
-      },
       "intentFilters": [
         {
           "action": "VIEW",
