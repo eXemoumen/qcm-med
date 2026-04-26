@@ -2,7 +2,7 @@
 // Questions Service
 // ============================================================================
 
-import { supabase, ensureValidSession } from './supabase'
+import { supabase, ensureValidSession, safeRefreshSession } from './supabase'
 import { Question, QuestionWithAnswers, ExamType, YearLevel } from '@/types'
 import { OfflineContentService } from './offline-content'
 
@@ -29,7 +29,7 @@ async function invokeWithRetry(
     if (__DEV__) {
       console.log('[Questions] 401 received, attempting token refresh and retry...');
     }
-    const { error: refreshError } = await supabase.auth.refreshSession();
+    const { error: refreshError } = await safeRefreshSession();
     if (!refreshError) {
       // Retry with fresh token
       return supabase.functions.invoke('fetch-secure-questions', { body });

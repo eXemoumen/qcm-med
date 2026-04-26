@@ -207,6 +207,38 @@ function getSupabaseClient(): SupabaseClient {
 export const supabase: SupabaseClient = getSupabaseClient()
 
 // ============================================================================
+// Global Refresh Lock — Prevents concurrent refreshSession() races
+// ============================================================================
+
+let _refreshPromise: Promise<{ data: { session: any }; error: any }> | null = null
+
+/**
+ * Thread-safe wrapper around supabase.auth.refreshSession().
+ * Only ONE refresh can be in-flight at a time. Concurrent callers
+ * receive the result of the already-running refresh instead of
+ * firing a second one (which would revoke the first's token).
+ */
+export async function safeRefreshSession(): Promise<{ data: { session: any }; error: any }> {
+  if (_refreshPromise) {
+    if (__DEV__) {
+      console.log('[Supabase] safeRefreshSession: waiting for in-flight refresh...')
+    }
+    return _refreshPromise
+  }
+
+  if (__DEV__) {
+    console.log('[Supabase] safeRefreshSession: starting new refresh')
+  }
+
+  _refreshPromise = supabase.auth.refreshSession()
+    .finally(() => {
+      _refreshPromise = null
+    })
+
+  return _refreshPromise
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -219,7 +251,8 @@ export async function ensureValidSession(): Promise<boolean> {
     if (expiresAt) {
       const now = Math.floor(Date.now() / 1000)
       if (expiresAt - now < 60) {
-        const { error: refreshError } = await supabase.auth.refreshSession()
+        // Use the global lock to prevent concurrent refresh races
+        const { error: refreshError } = await safeRefreshSession()
         if (refreshError) return false
       }
     }

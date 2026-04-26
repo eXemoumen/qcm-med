@@ -17,6 +17,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import {
   supabase,
   ensureValidSession,
+  safeRefreshSession,
   getStoredSessionSync,
 } from "@/lib/supabase";
 import { useWebVisibility } from "@/lib/useWebVisibility";
@@ -145,9 +146,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
           await refreshUser();
         }
       } else if (event === "SIGNED_OUT") {
-        if (userInitiatedSignOut.current) {
-          // User explicitly signed out — clear everything
+        // Check if this was intentional (from AuthContext.signOut, signOutInternal, OR auth.ts blocking)
+        if (userInitiatedSignOut.current || authService.getIsIntentionalSignOut()) {
+          // Reset both flags
           userInitiatedSignOut.current = false;
+          authService.setIsIntentionalSignOut(false);
           setUser(null);
           setIsLoading(false);
         } else {
@@ -175,42 +178,45 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
           if (__DEV__) {
             console.log(
-              "[Auth] Unexpected SIGNED_OUT event — attempting session recovery...",
+              "[Auth] Unexpected SIGNED_OUT event — checking existing session (passive)...",
             );
           }
 
           isRecoveringSession.current = true;
           lastRecoveryAttempt.current = Date.now();
           try {
+            // PASSIVE CHECK ONLY — do NOT call refreshSession() here!
+            // Calling refreshSession() in a SIGNED_OUT handler causes cascading
+            // token revocation races when multiple clients are active.
             const {
-              data: { session: recoveredSession },
-              error: recoveryError,
-            } = await supabase.auth.refreshSession();
+              data: { session: existingSession },
+              error: sessionError,
+            } = await supabase.auth.getSession();
 
-            if (recoveredSession && !recoveryError) {
+            if (existingSession && !sessionError) {
               if (__DEV__) {
                 console.log(
-                  "[Auth] ✅ Session recovered after unexpected SIGNED_OUT",
+                  "[Auth] ✅ Session still exists after SIGNED_OUT — staying logged in",
                 );
               }
-              // Session recovered! Refresh user data and stay logged in
+              // Session is still in storage — the SIGNED_OUT was spurious
               await refreshUser();
               return;
             }
           } catch (recoveryException) {
             if (__DEV__) {
               console.warn(
-                "[Auth] Session recovery failed:",
+                "[Auth] Session check failed:",
                 recoveryException,
               );
             }
           } finally {
             isRecoveringSession.current = false;
           }
-          // Recovery failed — truly signed out
+          // No session exists — truly signed out
           if (__DEV__) {
             console.log(
-              "[Auth] Session recovery failed — clearing user state",
+              "[Auth] No session found — clearing user state",
             );
           }
           setUser(null);
@@ -402,9 +408,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (!session) {
             // Session is gone but storage had something - might be corrupted
             if (user) {
-              // Try to refresh the session
+              // Try to refresh the session (using global lock)
               const { error: refreshError } =
-                await supabase.auth.refreshSession();
+                await safeRefreshSession();
               if (refreshError) {
                 setUser(null);
               }
@@ -452,6 +458,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
             if (error || !session) {
               // Session not in memory — try to refresh from refresh_token
+              // Use the global lock to prevent races with ensureValidSession()
               if (__DEV__) {
                 console.log(
                   "[Auth] Native resume: session missing, attempting refresh...",
@@ -460,7 +467,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               const {
                 data: { session: refreshedSession },
                 error: refreshError,
-              } = await supabase.auth.refreshSession();
+              } = await safeRefreshSession();
 
               if (!refreshedSession || refreshError) {
                 if (__DEV__) {
@@ -479,21 +486,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 }
               }
             } else {
-              // Session exists — proactively refresh if token is close to expiry
-              const expiresAt = session.expires_at;
-              if (expiresAt) {
-                const now = Math.floor(Date.now() / 1000);
-                const timeUntilExpiry = expiresAt - now;
-                if (timeUntilExpiry < 300) {
-                  // Less than 5 minutes — refresh proactively
-                  if (__DEV__) {
-                    console.log(
-                      `[Auth] Native resume: proactive token refresh (expires in ${timeUntilExpiry}s)`,
-                    );
-                  }
-                  await supabase.auth.refreshSession();
-                }
-              }
+              // Session exists — do NOT proactively refresh!
+              // Supabase's autoRefreshToken: true handles this automatically.
+              // Manual refreshSession() calls here race with auto-refresh and
+              // revoke tokens on other clients.
 
               // Refresh user data if hidden for a long time
               if (hiddenDuration > 60000) {
@@ -617,17 +613,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  // Sign in
+  // Sign in — wrapped in a 20s timeout to prevent stuck loading state
   const signIn = async (
     email: string,
     password: string,
   ): Promise<{ error: string | null }> => {
     try {
       setIsLoading(true);
-      const { user: loggedInUser, error } = await authService.signIn(
-        email,
-        password,
+
+      // Race the entire signIn pipeline (auth + profile + device check)
+      // against a 20-second timeout. Without this, a hung profile fetch
+      // on slow Algerian 3G keeps isLoading=true forever.
+      const signInPromise = authService.signIn(email, password);
+      const timeoutPromise = new Promise<{ user: null; error: string }>(
+        (resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                user: null,
+                error:
+                  "La connexion a pris trop de temps. Veuillez réessayer.",
+              }),
+            20000,
+          ),
       );
+
+      const { user: loggedInUser, error } = await Promise.race([
+        signInPromise,
+        timeoutPromise,
+      ]);
 
       if (error) {
         return { error };

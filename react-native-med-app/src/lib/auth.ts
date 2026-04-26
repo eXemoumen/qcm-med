@@ -9,6 +9,17 @@ import { clearQueryCache } from './query-client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // ============================================================================
+// Intentional Sign-Out Flag
+// ============================================================================
+// When auth.ts blocks a login (unpaid, expired, device limit) it calls
+// supabase.auth.signOut() directly.  The AuthContext SIGNED_OUT handler
+// must know this was intentional so it does NOT try to recover the session.
+// This flag is checked and reset by AuthContext.tsx.
+let _isIntentionalSignOut = false
+export function getIsIntentionalSignOut(): boolean { return _isIntentionalSignOut }
+export function setIsIntentionalSignOut(value: boolean): void { _isIntentionalSignOut = value }
+
+// ============================================================================
 // User Profile Caching for Offline Support
 // ============================================================================
 
@@ -461,6 +472,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     const isPrivileged = ['admin', 'owner'].includes(userProfile.role) || userProfile.is_reviewer === true
     if (!isPrivileged && !userProfile.is_paid) {
       if (__DEV__) console.warn('[Auth] User is not paid, blocking login:', userProfile.email)
+      _isIntentionalSignOut = true
       await supabase.auth.signOut()
       return {
         user: null,
@@ -473,6 +485,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       const expiresAt = new Date(userProfile.subscription_expires_at)
       if (expiresAt < new Date()) {
         if (__DEV__) console.warn('[Auth] Subscription expired for:', userProfile.email)
+        _isIntentionalSignOut = true
         await supabase.auth.signOut()
         return {
           user: null,
@@ -490,6 +503,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       // Only block login if the actual device limit is reached (not for transient errors)
       if (!canLogin && isLimitReached) {
         if (__DEV__) console.warn('[Auth] Device limit reached, signing out')
+        _isIntentionalSignOut = true
         await supabase.auth.signOut()
         return { user: null, error: deviceError }
       }

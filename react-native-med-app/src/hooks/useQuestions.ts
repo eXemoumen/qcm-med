@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-client';
 import { QuestionWithAnswers, ExamType, YearLevel } from '@/types';
 import { OfflineContentService } from '@/lib/offline-content';
-import { supabase, ensureValidSession } from '@/lib/supabase';
+import { supabase, ensureValidSession, safeRefreshSession } from '@/lib/supabase';
 
 // ============================================================================
 // Types
@@ -54,7 +54,7 @@ async function invokeWithRetry(
   const { data, error } = await supabase.functions.invoke('fetch-secure-questions', { body });
 
   if (error && (error.message?.includes('401') || error.message?.includes('Unauthorized') || error.message?.includes('session_not_found'))) {
-    const { error: refreshError } = await supabase.auth.refreshSession();
+    const { error: refreshError } = await safeRefreshSession();
     if (!refreshError) {
       return supabase.functions.invoke('fetch-secure-questions', { body });
     }
