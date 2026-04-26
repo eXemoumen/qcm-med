@@ -38,3 +38,5 @@ venv/
 
 # Dependencies
 node_modules/
+
+QCMcalc/
