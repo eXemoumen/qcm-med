@@ -347,28 +347,55 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       }
     }
 
-    // Step 1: Authenticate with Supabase
+    // Step 1: Authenticate with Supabase (with timeout protection for iOS)
     if (__DEV__) console.log('[Auth] Calling signInWithPassword...')
     let authData: any = null
     let authError: any = null
 
     try {
-      const result = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      // Wrap in timeout to prevent infinite hangs on iOS when network stack
+      // is suspended (backgrounding, screen lock, iOS WebKit suspension)
+      const result = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email,
+          password,
+        }),
+        15000,
+        'La connexion a pris trop de temps. Veuillez réessayer.'
+      )
       authData = result.data
       authError = result.error
     } catch (e: any) {
       if (__DEV__) console.error('[Auth] signInWithPassword threw:', e)
       const errorMessage = e?.message || ''
-      // Check for network errors specifically
-      if (errorMessage.toLowerCase().includes('network') ||
-        errorMessage.toLowerCase().includes('fetch') ||
-        errorMessage.toLowerCase().includes('timeout')) {
-        return { user: null, error: 'Problème de connexion réseau. Vérifiez votre connexion internet.' }
+
+      // Post-timeout recovery: check if auth actually succeeded despite timeout
+      // This is a known iOS pattern where the promise hangs but the backend
+      // creates the session successfully
+      if (errorMessage.includes('trop de temps')) {
+        if (__DEV__) console.log('[Auth] Timeout hit — checking if session was created anyway...')
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user) {
+            if (__DEV__) console.log('[Auth] Post-timeout recovery: session exists! Continuing...')
+            authData = { user: session.user, session }
+            authError = null
+            // Fall through to profile fetch below
+          } else {
+            return { user: null, error: errorMessage }
+          }
+        } catch {
+          return { user: null, error: errorMessage }
+        }
+      } else {
+        // Check for network errors specifically
+        if (errorMessage.toLowerCase().includes('network') ||
+          errorMessage.toLowerCase().includes('fetch') ||
+          errorMessage.toLowerCase().includes('timeout')) {
+          return { user: null, error: 'Problème de connexion réseau. Vérifiez votre connexion internet.' }
+        }
+        return { user: null, error: translateAuthError(errorMessage || 'Erreur de connexion. Veuillez réessayer.') }
       }
-      return { user: null, error: translateAuthError(errorMessage || 'Erreur de connexion. Veuillez réessayer.') }
     }
 
     if (__DEV__) console.log('[Auth] Sign in response:', { hasUser: !!authData?.user, hasSession: !!authData?.session, error: authError?.message })
