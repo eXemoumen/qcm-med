@@ -314,6 +314,9 @@ function translateAuthError(error: string): string {
   return error
 }
 
+// Timeout error message constant — used for strict equality matching in recovery path
+const TIMEOUT_ERROR_MESSAGE = 'La connexion a pris trop de temps. Veuillez réessayer.'
+
 // Helper function to add timeout to promises
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
   return Promise.race([
@@ -361,7 +364,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
           password,
         }),
         15000,
-        'La connexion a pris trop de temps. Veuillez réessayer.'
+        TIMEOUT_ERROR_MESSAGE
       )
       authData = result.data
       authError = result.error
@@ -372,12 +375,20 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       // Post-timeout recovery: check if auth actually succeeded despite timeout
       // This is a known iOS pattern where the promise hangs but the backend
       // creates the session successfully
-      if (errorMessage.includes('trop de temps')) {
+      if (errorMessage === TIMEOUT_ERROR_MESSAGE) {
         if (__DEV__) console.log('[Auth] Timeout hit — checking if session was created anyway...')
         try {
           const { data: { session } } = await supabase.auth.getSession()
           if (session?.user) {
-            if (__DEV__) console.log('[Auth] Post-timeout recovery: session exists! Continuing...')
+            // Verify the recovered session belongs to the user who just tried to log in.
+            // Without this check we could silently adopt a stale session from a different account.
+            const sessionEmail = session.user.email?.toLowerCase()
+            const intendedEmail = email.trim().toLowerCase()
+            if (sessionEmail !== intendedEmail) {
+              if (__DEV__) console.warn('[Auth] Post-timeout recovery: session email mismatch', { sessionEmail, intendedEmail })
+              return { user: null, error: errorMessage }
+            }
+            if (__DEV__) console.log('[Auth] Post-timeout recovery: session exists and email matches! Continuing...')
             authData = { user: session.user, session }
             authError = null
             // Fall through to profile fetch below
