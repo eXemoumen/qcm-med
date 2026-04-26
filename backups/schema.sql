@@ -868,45 +868,6 @@ $$;
 ALTER FUNCTION "public"."get_all_module_question_counts"() OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."club_registrations" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "full_name" "text" NOT NULL,
-    "email" "text" NOT NULL,
-    "phone" "text" NOT NULL,
-    "faculty" "text" NOT NULL,
-    "year_of_study" "text" NOT NULL,
-    "motivation" "text" NOT NULL,
-    "skills" "text",
-    "previous_experience" "text",
-    "status" "text" DEFAULT 'pending'::"text" NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "linkedin_url" "text",
-    "portfolio_url" "text",
-    "matricule" "text",
-    "university" "text",
-    "interested_departments" "text"[],
-    CONSTRAINT "club_registrations_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'approved'::"text", 'rejected'::"text"])))
-);
-
-
-ALTER TABLE "public"."club_registrations" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."club_registrations" IS 'Registration submissions for the Axium Scientific Club';
-
-
-
-CREATE OR REPLACE FUNCTION "public"."get_club_registrations"() RETURNS SETOF "public"."club_registrations"
-    LANGUAGE "sql" SECURITY DEFINER
-    AS $$
-  SELECT * FROM club_registrations ORDER BY created_at DESC;
-$$;
-
-
-ALTER FUNCTION "public"."get_club_registrations"() OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."get_cours_with_counts"("p_module_name" "text") RETURNS TABLE("cours_name" "text", "question_count" bigint)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -1077,12 +1038,11 @@ ALTER FUNCTION "public"."has_active_subscription"("p_user_id" "uuid") OWNER TO "
 
 
 CREATE OR REPLACE FUNCTION "public"."is_admin_or_higher"() RETURNS boolean
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     AS $$
 BEGIN
   RETURN EXISTS (
-    SELECT 1 FROM public.users WHERE id = auth.uid() AND role IN ('owner', 'admin')
+    SELECT 1 FROM public.users WHERE id = (select auth.uid()) AND role IN ('owner', 'admin')
   );
 END;
 $$;
@@ -1107,12 +1067,11 @@ ALTER FUNCTION "public"."is_manager_or_higher"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."is_owner"() RETURNS boolean
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     AS $$
 BEGIN
   RETURN EXISTS (
-    SELECT 1 FROM public.users WHERE id = auth.uid() AND role = 'owner'
+    SELECT 1 FROM public.users WHERE id = (select auth.uid()) AND role = 'owner'
   );
 END;
 $$;
@@ -2294,11 +2253,6 @@ ALTER TABLE ONLY "public"."chat_sessions"
 
 
 
-ALTER TABLE ONLY "public"."club_registrations"
-    ADD CONSTRAINT "club_registrations_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "public"."course_resources"
     ADD CONSTRAINT "course_resources_pkey" PRIMARY KEY ("id");
 
@@ -2411,11 +2365,6 @@ ALTER TABLE ONLY "public"."subscription_plans"
 
 ALTER TABLE ONLY "public"."test_attempts"
     ADD CONSTRAINT "test_attempts_pkey" PRIMARY KEY ("id");
-
-
-
-ALTER TABLE ONLY "public"."club_registrations"
-    ADD CONSTRAINT "unique_email" UNIQUE ("email");
 
 
 
@@ -2563,14 +2512,6 @@ CREATE INDEX "idx_caisse_transactions_type" ON "public"."caisse_transactions" US
 
 
 CREATE INDEX "idx_chat_logs_session_id" ON "public"."chat_logs" USING "btree" ("session_id");
-
-
-
-CREATE INDEX "idx_club_registrations_email" ON "public"."club_registrations" USING "btree" ("email");
-
-
-
-CREATE INDEX "idx_club_registrations_status" ON "public"."club_registrations" USING "btree" ("status");
 
 
 
@@ -3086,27 +3027,11 @@ CREATE POLICY "Admins can insert users" ON "public"."users" FOR INSERT TO "authe
 
 
 
-CREATE POLICY "Admins can view all audit logs" ON "public"."security_audit_logs" FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"]))))));
-
-
-
-CREATE POLICY "Admins can view all feedback" ON "public"."user_feedback" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
-   FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"]))))));
-
-
-
 CREATE POLICY "Admins create payments" ON "public"."online_payments" FOR INSERT TO "authenticated" WITH CHECK (( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher"));
 
 
 
 CREATE POLICY "Admins delete activation keys" ON "public"."activation_keys" FOR DELETE TO "authenticated" USING (( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher"));
-
-
-
-CREATE POLICY "Admins delete device sessions" ON "public"."device_sessions" FOR DELETE TO "authenticated" USING ("public"."is_admin_or_higher"());
 
 
 
@@ -3126,29 +3051,13 @@ CREATE POLICY "Admins update reports" ON "public"."question_reports" FOR UPDATE 
 
 
 
-CREATE POLICY "Allow anonymous inserts" ON "public"."club_registrations" FOR INSERT TO "anon" WITH CHECK (true);
-
-
-
 CREATE POLICY "Allow anonymous profile creation" ON "public"."users" FOR INSERT TO "anon" WITH CHECK ((("role" = 'student'::"public"."user_role") AND ("email" IS NOT NULL) AND ("full_name" IS NOT NULL)));
-
-
-
-CREATE POLICY "Allow anonymous read" ON "public"."club_registrations" FOR SELECT TO "anon" USING (true);
-
-
-
-CREATE POLICY "Allow authenticated read" ON "public"."club_registrations" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Allow authenticated update" ON "public"."club_registrations" FOR UPDATE TO "authenticated" USING (true) WITH CHECK (true);
 
 
 
 CREATE POLICY "Allow insert for owners" ON "public"."app_config" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3158,7 +3067,7 @@ CREATE POLICY "Allow read access for all users" ON "public"."app_config" FOR SEL
 
 CREATE POLICY "Allow update for owners" ON "public"."app_config" FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3170,7 +3079,7 @@ CREATE POLICY "Authenticated users insert courses" ON "public"."courses" FOR INS
 
 
 
-CREATE POLICY "Authenticated users insert own chat logs" ON "public"."chat_logs" FOR INSERT TO "authenticated" WITH CHECK (("auth"."uid"() = "user_id"));
+CREATE POLICY "Authenticated users insert own chat logs" ON "public"."chat_logs" FOR INSERT TO "authenticated" WITH CHECK ((( SELECT "auth"."uid"() AS "uid") = "user_id"));
 
 
 
@@ -3202,11 +3111,11 @@ CREATE POLICY "Owner can delete caisse transactions" ON "public"."caisse_transac
 
 
 
-CREATE POLICY "Owner can insert caisse checkouts" ON "public"."caisse_checkouts" FOR INSERT WITH CHECK (("public"."is_owner"() AND ("auth"."uid"() = "created_by")));
+CREATE POLICY "Owner can insert caisse checkouts" ON "public"."caisse_checkouts" FOR INSERT WITH CHECK ((( SELECT "public"."is_owner"() AS "is_owner") AND (( SELECT "auth"."uid"() AS "uid") = "created_by")));
 
 
 
-CREATE POLICY "Owner can insert caisse transactions" ON "public"."caisse_transactions" FOR INSERT WITH CHECK (("public"."is_owner"() AND ("auth"."uid"() = "created_by")));
+CREATE POLICY "Owner can insert caisse transactions" ON "public"."caisse_transactions" FOR INSERT WITH CHECK ((( SELECT "public"."is_owner"() AS "is_owner") AND (( SELECT "auth"."uid"() AS "uid") = "created_by")));
 
 
 
@@ -3228,7 +3137,7 @@ CREATE POLICY "Owner can view caisse transactions" ON "public"."caisse_transacti
 
 CREATE POLICY "Owners can create plans" ON "public"."subscription_plans" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3242,13 +3151,13 @@ CREATE POLICY "Owners can delete courses" ON "public"."courses" FOR DELETE TO "a
 
 CREATE POLICY "Owners can delete feedback" ON "public"."user_feedback" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
 CREATE POLICY "Owners can delete plans" ON "public"."subscription_plans" FOR DELETE USING ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3258,13 +3167,13 @@ CREATE POLICY "Owners can update courses" ON "public"."courses" FOR UPDATE TO "a
 
 CREATE POLICY "Owners can update feedback" ON "public"."user_feedback" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
 CREATE POLICY "Owners can update plans" ON "public"."subscription_plans" FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM "public"."users"
-  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3344,19 +3253,27 @@ CREATE POLICY "Update activation keys" ON "public"."activation_keys" FOR UPDATE 
 
 
 
-CREATE POLICY "Users can only read their own audit logs" ON "public"."security_audit_logs" FOR SELECT USING (("auth"."uid"() = "user_id"));
+CREATE POLICY "Users and admins can delete sessions" ON "public"."device_sessions" FOR DELETE TO "authenticated" USING ((("user_id" = ( SELECT "auth"."uid"() AS "uid")) OR ( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher")));
 
 
 
-CREATE POLICY "Users can submit feedback" ON "public"."user_feedback" FOR INSERT TO "authenticated" WITH CHECK (("auth"."uid"() = "user_id"));
+CREATE POLICY "Users and admins can read audit logs" ON "public"."security_audit_logs" FOR SELECT USING (((( SELECT "auth"."uid"() AS "uid") = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"])))))));
+
+
+
+CREATE POLICY "Users and admins can view feedback" ON "public"."user_feedback" FOR SELECT TO "authenticated" USING (((( SELECT "auth"."uid"() AS "uid") = "user_id") OR (EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = ( SELECT "auth"."uid"() AS "uid")) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"])))))));
+
+
+
+CREATE POLICY "Users can submit feedback" ON "public"."user_feedback" FOR INSERT TO "authenticated" WITH CHECK ((( SELECT "auth"."uid"() AS "uid") = "user_id"));
 
 
 
 CREATE POLICY "Users can update own profile or be admin" ON "public"."users" FOR UPDATE TO "authenticated" USING (((( SELECT "auth"."uid"() AS "uid") = "id") OR "public"."is_admin_or_higher"()));
-
-
-
-CREATE POLICY "Users can view own feedback" ON "public"."user_feedback" FOR SELECT TO "authenticated" USING (("auth"."uid"() = "user_id"));
 
 
 
@@ -3373,10 +3290,6 @@ CREATE POLICY "Users create reports" ON "public"."question_reports" FOR INSERT T
 
 
 CREATE POLICY "Users delete own sessions" ON "public"."chat_sessions" FOR DELETE TO "authenticated" USING (("user_id" = ( SELECT "auth"."uid"() AS "uid")));
-
-
-
-CREATE POLICY "Users delete own sessions" ON "public"."device_sessions" FOR DELETE TO "authenticated" USING (("user_id" = ( SELECT "auth"."uid"() AS "uid")));
 
 
 
@@ -3497,9 +3410,6 @@ ALTER TABLE "public"."chat_messages" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."chat_sessions" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."club_registrations" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."course_resources" ENABLE ROW LEVEL SECURITY;
@@ -4213,18 +4123,6 @@ GRANT ALL ON FUNCTION "public"."get_all_cours_counts"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."get_all_module_question_counts"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_all_module_question_counts"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_all_module_question_counts"() TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."club_registrations" TO "anon";
-GRANT ALL ON TABLE "public"."club_registrations" TO "authenticated";
-GRANT ALL ON TABLE "public"."club_registrations" TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."get_club_registrations"() TO "anon";
-GRANT ALL ON FUNCTION "public"."get_club_registrations"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."get_club_registrations"() TO "service_role";
 
 
 
