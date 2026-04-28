@@ -438,17 +438,11 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     let fetchError: any = null
 
     try {
-      const result = await withTimeout<any>(
-        (async () => {
-          return await supabase
-            .from('users')
-            .select('*')
-            .eq('id', authData.user.id)
-            .single()
-        })(),
-        10000,
-        'Profile query timed out'
-      )
+      const result = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single()
 
       userProfile = result.data
       fetchError = result.error
@@ -519,27 +513,13 @@ export async function signIn(email: string, password: string): Promise<{ user: U
         if (__DEV__) console.warn('[Auth] Device check failed (transient error), allowing login:', deviceError)
       }
 
-      // Step 4: Register device. Do not let a slow device_sessions write keep
-      // the login button spinning forever.
+      // Step 4: Register device (fire-and-forget, non-blocking).
       // AuthContext gives registration a 30s grace period before
       // verifySessionExists() can enforce remote logout.
       if (__DEV__) console.log('[Auth] Registering device...')
-      try {
-        const registrationPromise = registerDevice(authData.user.id)
-        const registrationResult = await withTimeout(
-          registrationPromise,
-          5000,
-          'Device registration timed out'
-        )
-
-        if (registrationResult.error && __DEV__) {
-          console.warn('[Auth] Device registration returned error:', registrationResult.error)
-        }
-      } catch (e) {
+      registerDevice(authData.user.id).catch((e) => {
         if (__DEV__) console.warn('[Auth] Device registration failed (non-critical):', e)
-        // Don't block login — user already authenticated successfully.
-        // The 30s grace period in AuthContext prevents premature logout.
-      }
+      })
     }
 
     // Debug device sessions in development (non-blocking)
@@ -934,17 +914,11 @@ export async function registerDevice(userId: string): Promise<{ error: string | 
 
 export async function getDeviceSessions(userId: string): Promise<{ sessions: DeviceSession[]; error: string | null }> {
   try {
-    const { data, error } = await withTimeout<any>(
-      (async () => {
-        return await supabase
-          .from('device_sessions')
-          .select('*')
-          .eq('user_id', userId)
-          .order('last_active_at', { ascending: false })
-      })(),
-      10000,
-      'Device sessions query timed out'
-    )
+    const { data, error } = await supabase
+      .from('device_sessions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('last_active_at', { ascending: false })
 
     if (error) {
       return { sessions: [], error: error.message }
