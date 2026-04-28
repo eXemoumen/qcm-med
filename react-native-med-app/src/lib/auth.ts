@@ -9,6 +9,17 @@ import { clearQueryCache } from './query-client'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // ============================================================================
+// Intentional Sign-Out Flag
+// ============================================================================
+// When auth.ts blocks a login (unpaid, expired, device limit) it calls
+// supabase.auth.signOut() directly.  The AuthContext SIGNED_OUT handler
+// must know this was intentional so it does NOT try to recover the session.
+// This flag is checked and reset by AuthContext.tsx.
+let _isIntentionalSignOut = false
+export function getIsIntentionalSignOut(): boolean { return _isIntentionalSignOut }
+export function setIsIntentionalSignOut(value: boolean): void { _isIntentionalSignOut = value }
+
+// ============================================================================
 // User Profile Caching for Offline Support
 // ============================================================================
 
@@ -314,6 +325,9 @@ function translateAuthError(error: string): string {
   return error
 }
 
+// Timeout error message constant — used for strict equality matching in recovery path
+const TIMEOUT_ERROR_MESSAGE = 'La connexion a pris trop de temps. Veuillez réessayer.'
+
 // Helper function to add timeout to promises
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
   return Promise.race([
@@ -347,28 +361,63 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       }
     }
 
-    // Step 1: Authenticate with Supabase
+    // Step 1: Authenticate with Supabase (with timeout protection for iOS)
     if (__DEV__) console.log('[Auth] Calling signInWithPassword...')
     let authData: any = null
     let authError: any = null
 
     try {
-      const result = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      // Wrap in timeout to prevent infinite hangs on iOS when network stack
+      // is suspended (backgrounding, screen lock, iOS WebKit suspension)
+      const result = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email,
+          password,
+        }),
+        15000,
+        TIMEOUT_ERROR_MESSAGE
+      )
       authData = result.data
       authError = result.error
     } catch (e: any) {
       if (__DEV__) console.error('[Auth] signInWithPassword threw:', e)
       const errorMessage = e?.message || ''
-      // Check for network errors specifically
-      if (errorMessage.toLowerCase().includes('network') ||
-        errorMessage.toLowerCase().includes('fetch') ||
-        errorMessage.toLowerCase().includes('timeout')) {
-        return { user: null, error: 'Problème de connexion réseau. Vérifiez votre connexion internet.' }
+
+      // Post-timeout recovery: check if auth actually succeeded despite timeout
+      // This is a known iOS pattern where the promise hangs but the backend
+      // creates the session successfully
+      if (errorMessage === TIMEOUT_ERROR_MESSAGE) {
+        if (__DEV__) console.log('[Auth] Timeout hit — checking if session was created anyway...')
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user) {
+            // Verify the recovered session belongs to the user who just tried to log in.
+            // Without this check we could silently adopt a stale session from a different account.
+            const sessionEmail = session.user.email?.toLowerCase()
+            const intendedEmail = email.trim().toLowerCase()
+            if (sessionEmail !== intendedEmail) {
+              if (__DEV__) console.warn('[Auth] Post-timeout recovery: session email mismatch', { sessionEmail, intendedEmail })
+              return { user: null, error: errorMessage }
+            }
+            if (__DEV__) console.log('[Auth] Post-timeout recovery: session exists and email matches! Continuing...')
+            authData = { user: session.user, session }
+            authError = null
+            // Fall through to profile fetch below
+          } else {
+            return { user: null, error: errorMessage }
+          }
+        } catch {
+          return { user: null, error: errorMessage }
+        }
+      } else {
+        // Check for network errors specifically
+        if (errorMessage.toLowerCase().includes('network') ||
+          errorMessage.toLowerCase().includes('fetch') ||
+          errorMessage.toLowerCase().includes('timeout')) {
+          return { user: null, error: 'Problème de connexion réseau. Vérifiez votre connexion internet.' }
+        }
+        return { user: null, error: translateAuthError(errorMessage || 'Erreur de connexion. Veuillez réessayer.') }
       }
-      return { user: null, error: translateAuthError(errorMessage || 'Erreur de connexion. Veuillez réessayer.') }
     }
 
     if (__DEV__) console.log('[Auth] Sign in response:', { hasUser: !!authData?.user, hasSession: !!authData?.session, error: authError?.message })
@@ -423,6 +472,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     const isPrivileged = ['admin', 'owner'].includes(userProfile.role) || userProfile.is_reviewer === true
     if (!isPrivileged && !userProfile.is_paid) {
       if (__DEV__) console.warn('[Auth] User is not paid, blocking login:', userProfile.email)
+      _isIntentionalSignOut = true
       await supabase.auth.signOut()
       return {
         user: null,
@@ -435,6 +485,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       const expiresAt = new Date(userProfile.subscription_expires_at)
       if (expiresAt < new Date()) {
         if (__DEV__) console.warn('[Auth] Subscription expired for:', userProfile.email)
+        _isIntentionalSignOut = true
         await supabase.auth.signOut()
         return {
           user: null,
@@ -452,6 +503,7 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       // Only block login if the actual device limit is reached (not for transient errors)
       if (!canLogin && isLimitReached) {
         if (__DEV__) console.warn('[Auth] Device limit reached, signing out')
+        _isIntentionalSignOut = true
         await supabase.auth.signOut()
         return { user: null, error: deviceError }
       }
@@ -461,11 +513,18 @@ export async function signIn(email: string, password: string): Promise<{ user: U
         if (__DEV__) console.warn('[Auth] Device check failed (transient error), allowing login:', deviceError)
       }
 
-      // Step 4: Register device - NON-BLOCKING
+      // Step 4: Register device - MUST complete before returning
+      // Previously fire-and-forget, which caused a race condition:
+      // handleVisibilityChange → verifySessionExists() would fire before
+      // the row existed, triggering immediate logout on iOS Safari.
       if (__DEV__) console.log('[Auth] Registering device...')
-      registerDevice(authData.user.id).catch(e => {
-        console.warn('[Auth] Device registration failed (non-blocking):', e)
-      })
+      try {
+        await registerDevice(authData.user.id)
+      } catch (e) {
+        if (__DEV__) console.warn('[Auth] Device registration failed (non-critical):', e)
+        // Don't block login — user already authenticated successfully.
+        // The 30s grace period in AuthContext prevents premature logout.
+      }
     }
 
     // Debug device sessions in development (non-blocking)

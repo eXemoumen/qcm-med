@@ -2,7 +2,7 @@
 // Login Screen - Stunning Premium UI with Jaw-Dropping Animations
 // ============================================================================
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Image,
   useWindowDimensions,
   Animated,
+  Keyboard,
 } from "react-native";
 import { router, useNavigation, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -342,7 +343,22 @@ export default function LoginScreen() {
     }, staggerDelay * 5);
   }, []);
 
+  // Double-submit guard: prevents rapid-fire login attempts on iOS
+  const isSubmitting = useRef(false);
+
   const handleLogin = async () => {
+    // Guard: prevent double-submit from rapid taps or autofill race conditions
+    if (isSubmitting.current || isLoading) {
+      if (__DEV__) console.log("[Login] Blocked duplicate submit");
+      return;
+    }
+
+    // Dismiss keyboard to trigger onEndEditing (syncs autofill values)
+    Keyboard.dismiss();
+
+    // Small delay to allow onEndEditing state sync from iOS autofill
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     // Validate email format
     const emailValidation = validateEmail(email);
     if (!emailValidation.isValid) {
@@ -350,31 +366,37 @@ export default function LoginScreen() {
       return;
     }
 
-    // Validate password is not empty
-    if (!password) {
+    // Validate password is not empty (defensive check for autofill desync)
+    if (!password || password.trim().length === 0) {
+      if (__DEV__) console.warn("[Login] Empty password detected — possible autofill desync");
       setError("Veuillez entrer votre mot de passe");
       return;
     }
 
+    isSubmitting.current = true;
     setError(null);
     setShowResendLink(false);
 
-    if (__DEV__) console.log("[Login] Starting login...");
-    const { error: loginError } = await signIn(
-      email.trim().toLowerCase(),
-      password,
-    );
-    if (__DEV__)
-      console.log("[Login] Login result:", {
-        hasError: !!loginError,
-        error: loginError,
-      });
+    try {
+      if (__DEV__) console.log("[Login] Starting login...", { emailLen: email.length, passLen: password.length });
+      const { error: loginError } = await signIn(
+        email.trim().toLowerCase(),
+        password,
+      );
+      if (__DEV__)
+        console.log("[Login] Login result:", {
+          hasError: !!loginError,
+          error: loginError,
+        });
 
-    if (loginError) {
-      setError(loginError);
-    } else {
-      if (__DEV__) console.log("[Login] Success, redirecting to tabs...");
-      router.replace("/(tabs)");
+      if (loginError) {
+        setError(loginError);
+      } else {
+        if (__DEV__) console.log("[Login] Success, redirecting to tabs...");
+        router.replace("/(tabs)");
+      }
+    } finally {
+      isSubmitting.current = false;
     }
   };
 
@@ -1039,6 +1061,12 @@ export default function LoginScreen() {
                 value={email}
                 onChangeText={setEmail}
                 leftIcon={<Text style={{ fontSize: 18 }}>📧</Text>}
+                textContentType="emailAddress"
+                autoComplete="email"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
               />
             </Animated.View>
 
@@ -1056,6 +1084,11 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 secureTextEntry
                 leftIcon={<Text style={{ fontSize: 18 }}>🔒</Text>}
+                textContentType="password"
+                autoComplete="password"
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+                blurOnSubmit={false}
               />
             </Animated.View>
 

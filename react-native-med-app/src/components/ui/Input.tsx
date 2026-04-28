@@ -3,7 +3,17 @@
 // ============================================================================
 
 import React, { useState } from 'react'
-import { View, TextInput, Text, TouchableOpacity, ViewStyle, TextStyle } from 'react-native'
+import {
+  View,
+  TextInput,
+  Text,
+  TouchableOpacity,
+  ViewStyle,
+  TextStyle,
+  NativeSyntheticEvent,
+  TextInputEndEditingEventData,
+  TextInputProps,
+} from 'react-native'
 import { COMPONENT_THEMES, BRAND_THEME } from '@/constants/theme'
 
 interface InputProps {
@@ -21,6 +31,16 @@ interface InputProps {
   onRightIconPress?: () => void
   className?: string
   style?: ViewStyle
+  // iOS Autofill-safe props
+  textContentType?: TextInputProps['textContentType']
+  autoComplete?: TextInputProps['autoComplete']
+  autoCapitalize?: TextInputProps['autoCapitalize']
+  autoCorrect?: boolean
+  keyboardType?: TextInputProps['keyboardType']
+  returnKeyType?: TextInputProps['returnKeyType']
+  onSubmitEditing?: () => void
+  blurOnSubmit?: boolean
+  onEndEditing?: (e: NativeSyntheticEvent<TextInputEndEditingEventData>) => void
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -38,8 +58,35 @@ export const Input: React.FC<InputProps> = ({
   onRightIconPress,
   className = '',
   style,
+  // iOS Autofill-safe props
+  textContentType,
+  autoComplete,
+  autoCapitalize,
+  autoCorrect,
+  keyboardType,
+  returnKeyType,
+  onSubmitEditing,
+  blurOnSubmit,
+  onEndEditing,
 }) => {
   const [isFocused, setIsFocused] = useState(false)
+
+  // iOS Autofill Safety: when the user finishes editing (or autofill completes),
+  // sync the native field value back to React state. This catches cases where
+  // iCloud Keychain autofill bypasses onChangeText.
+  const handleEndEditing = (e: NativeSyntheticEvent<TextInputEndEditingEventData>) => {
+    const nativeValue = e.nativeEvent.text
+    if (nativeValue !== undefined && nativeValue !== value) {
+      if (__DEV__) {
+        console.log('[Input] onEndEditing sync: native value differs from state, updating', {
+          stateLen: value?.length ?? 0,
+          nativeLen: nativeValue?.length ?? 0,
+        })
+      }
+      onChangeText(nativeValue)
+    }
+    onEndEditing?.(e)
+  }
 
   const getContainerStyles = (): ViewStyle => ({
     marginBottom: BRAND_THEME.spacing.sm,
@@ -117,6 +164,16 @@ export const Input: React.FC<InputProps> = ({
           numberOfLines={numberOfLines}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
+          onEndEditing={handleEndEditing}
+          // iOS Autofill-safe props
+          textContentType={textContentType}
+          autoComplete={autoComplete}
+          autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          keyboardType={keyboardType}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={blurOnSubmit}
         />
         
         {rightIcon && (

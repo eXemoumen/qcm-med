@@ -17,6 +17,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import {
   supabase,
   ensureValidSession,
+  safeRefreshSession,
   getStoredSessionSync,
 } from "@/lib/supabase";
 import { useWebVisibility } from "@/lib/useWebVisibility";
@@ -92,6 +93,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const initialLoadComplete = useRef(false);
   // Track if we've subscribed to auth changes
   const subscriptionRef = useRef<{ unsubscribe: () => void } | null>(null);
+  // Track user-initiated signouts to distinguish from accidental ones (e.g., failed token refresh)
+  const userInitiatedSignOut = useRef(false);
+  // Guard against parallel session recovery attempts (e.g., multiple SIGNED_OUT events firing in rapid succession)
+  const isRecoveringSession = useRef(false);
+  // Time-based cooldown to prevent recovery loops (e.g., refreshSession() triggering another SIGNED_OUT)
+  const lastRecoveryAttempt = useRef<number>(0);
+  const RECOVERY_COOLDOWN_MS = 5000; // 5 seconds
+  // Grace period after login: skip verifySessionExists() checks to prevent
+  // race condition where device registration hasn't propagated yet
+  const lastLoginTime = useRef<number>(0);
+  const LOGIN_GRACE_PERIOD_MS = 30000; // 30 seconds
 
   // Check for existing session on mount
   useEffect(() => {
@@ -138,8 +150,82 @@ export function AuthProvider({ children }: AuthProviderProps) {
           await refreshUser();
         }
       } else if (event === "SIGNED_OUT") {
-        setUser(null);
-        setIsLoading(false);
+        // Check if this was intentional (from AuthContext.signOut, signOutInternal, OR auth.ts blocking)
+        if (userInitiatedSignOut.current || authService.getIsIntentionalSignOut()) {
+          // Reset both flags
+          userInitiatedSignOut.current = false;
+          authService.setIsIntentionalSignOut(false);
+          setUser(null);
+          setIsLoading(false);
+        } else {
+          // Unexpected signout (e.g., failed token refresh after app resume)
+          // Guard: skip if within cooldown period from a recent recovery attempt
+          const now = Date.now();
+          if (now - lastRecoveryAttempt.current < RECOVERY_COOLDOWN_MS) {
+            if (__DEV__) {
+              console.log(
+                "[Auth] Skipping SIGNED_OUT recovery — within cooldown period",
+              );
+            }
+            return;
+          }
+
+          // Guard: skip if another recovery is already in progress
+          if (isRecoveringSession.current) {
+            if (__DEV__) {
+              console.log(
+                "[Auth] Skipping SIGNED_OUT recovery — already in progress",
+              );
+            }
+            return;
+          }
+
+          if (__DEV__) {
+            console.log(
+              "[Auth] Unexpected SIGNED_OUT event — checking existing session (passive)...",
+            );
+          }
+
+          isRecoveringSession.current = true;
+          lastRecoveryAttempt.current = Date.now();
+          try {
+            // PASSIVE CHECK ONLY — do NOT call refreshSession() here!
+            // Calling refreshSession() in a SIGNED_OUT handler causes cascading
+            // token revocation races when multiple clients are active.
+            const {
+              data: { session: existingSession },
+              error: sessionError,
+            } = await supabase.auth.getSession();
+
+            if (existingSession && !sessionError) {
+              if (__DEV__) {
+                console.log(
+                  "[Auth] ✅ Session still exists after SIGNED_OUT — staying logged in",
+                );
+              }
+              // Session is still in storage — the SIGNED_OUT was spurious
+              await refreshUser();
+              return;
+            }
+          } catch (recoveryException) {
+            if (__DEV__) {
+              console.warn(
+                "[Auth] Session check failed:",
+                recoveryException,
+              );
+            }
+          } finally {
+            isRecoveringSession.current = false;
+          }
+          // No session exists — truly signed out
+          if (__DEV__) {
+            console.log(
+              "[Auth] No session found — clearing user state",
+            );
+          }
+          setUser(null);
+          setIsLoading(false);
+        }
       } else if (event === "TOKEN_REFRESHED" && session) {
         // Token was refreshed, ensure user data is still valid
       } else if (event === "PASSWORD_RECOVERY" && session) {
@@ -254,6 +340,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.log("[Auth] Signing out internally:", message);
       }
 
+      // Mark as intentional so onAuthStateChange doesn't try to recover
+      userInitiatedSignOut.current = true;
+
       // Clear user state immediately for instant feedback
       setUser(null);
 
@@ -273,14 +362,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  // Handle visibility changes - CRITICAL for web tab switching
+  // Handle visibility changes - CRITICAL for both web tab switching AND native app resume
   const handleVisibilityChange = useCallback(
     async (isVisible: boolean, hiddenDuration: number) => {
       // Only handle when becoming visible
       if (!isVisible) return;
 
-      // Only handle on web after initial load is complete
-      if (getPlatformOS() !== "web" || !initialLoadComplete.current) return;
+      // Wait for initial load to complete
+      if (!initialLoadComplete.current) return;
 
       // Skip if we checked very recently (within 3 seconds)
       const timeSinceLastCheck = Date.now() - lastSessionCheck.current;
@@ -289,69 +378,153 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Skip if already checking
       if (isCheckingSession.current) return;
 
+      const isWebPlatform = getPlatformOS() === "web";
+
       try {
         isCheckingSession.current = true;
 
-        // First, check if there's a stored session
-        const hasStoredSession = getStoredSessionSync();
+        if (isWebPlatform) {
+          // ======== WEB PATH ========
+          // First, check if there's a stored session
+          const hasStoredSession = getStoredSessionSync();
 
-        if (!hasStoredSession) {
-          // No stored session - if we have a user, they've been logged out
-          if (user) {
-            setUser(null);
-          }
-          lastSessionCheck.current = Date.now();
-          return;
-        }
-
-        // There's a stored session, verify it's still valid
-        const {
-          data: { session },
-          error,
-        } = await supabase.auth.getSession();
-
-        if (error) {
-          // Don't clear user on transient errors
-          lastSessionCheck.current = Date.now();
-          return;
-        }
-
-        if (!session) {
-          // Session is gone but storage had something - might be corrupted
-          if (user) {
-            // Try to refresh the session
-            const { error: refreshError } =
-              await supabase.auth.refreshSession();
-            if (refreshError) {
+          if (!hasStoredSession) {
+            // No stored session - if we have a user, they've been logged out
+            if (user) {
               setUser(null);
             }
-          }
-        } else if (user) {
-          // Session exists and we have a user
-
-          // IMPORTANT: Also check if device session still exists in DB
-          // This catches cases where admin deleted the session while app was in background
-          const sessionExists = await authService.verifySessionExists();
-          if (!sessionExists) {
-            if (__DEV__) {
-              console.log("[Auth] Device session not found in DB, logging out");
-            }
-            await signOutInternal("Votre session a été révoquée.");
+            lastSessionCheck.current = Date.now();
             return;
           }
 
-          // Optionally refresh user data if hidden for a while
-          if (hiddenDuration > 60000) {
+          // There's a stored session, verify it's still valid
+          const {
+            data: { session },
+            error,
+          } = await supabase.auth.getSession();
+
+          if (error) {
+            // Don't clear user on transient errors
+            lastSessionCheck.current = Date.now();
+            return;
+          }
+
+          if (!session) {
+            // Session is gone but storage had something - might be corrupted
+            if (user) {
+              // Try to refresh the session (using global lock)
+              const { error: refreshError } =
+                await safeRefreshSession();
+              if (refreshError) {
+                setUser(null);
+              }
+            }
+          } else if (user) {
+            // Session exists and we have a user
+
+            // IMPORTANT: Also check if device session still exists in DB
+            // This catches cases where admin deleted the session while app was in background
+            // BUT: skip this check right after login to avoid race with registerDevice()
+            const msSinceLogin = Date.now() - lastLoginTime.current;
+            if (msSinceLogin > LOGIN_GRACE_PERIOD_MS) {
+              const sessionExists = await authService.verifySessionExists();
+              if (!sessionExists) {
+                if (__DEV__) {
+                  console.log(
+                    "[Auth] Device session not found in DB, logging out",
+                  );
+                }
+                await signOutInternal("Votre session a été révoquée.");
+                return;
+              }
+            } else if (__DEV__) {
+              console.log(
+                `[Auth] Skipping verifySessionExists — within login grace period (${Math.round(msSinceLogin / 1000)}s < ${LOGIN_GRACE_PERIOD_MS / 1000}s)`,
+              );
+            }
+
+            // Optionally refresh user data if hidden for a while
+            if (hiddenDuration > 60000) {
+              await refreshUser();
+            }
+          } else {
+            // Session exists but no user - this shouldn't happen, refresh user
             await refreshUser();
           }
         } else {
-          // Session exists but no user - this shouldn't happen, refresh user
-          await refreshUser();
+          // ======== NATIVE PATH (Android/iOS) ========
+          // Proactively verify and refresh the session when returning from background.
+          // This prevents Supabase's internal auto-refresh from firing SIGNED_OUT
+          // on a transient network error during app resume.
+          if (user && hiddenDuration > 2000) {
+            if (__DEV__) {
+              console.log(
+                `[Auth] Native resume: verifying session (hidden for ${Math.round(hiddenDuration / 1000)}s)`,
+              );
+            }
+
+            const {
+              data: { session },
+              error,
+            } = await supabase.auth.getSession();
+
+            if (error || !session) {
+              // Session not in memory — try to refresh from refresh_token
+              // Use the global lock to prevent races with ensureValidSession()
+              if (__DEV__) {
+                console.log(
+                  "[Auth] Native resume: session missing, attempting refresh...",
+                );
+              }
+              const {
+                data: { session: refreshedSession },
+                error: refreshError,
+              } = await safeRefreshSession();
+
+              if (!refreshedSession || refreshError) {
+                if (__DEV__) {
+                  console.warn(
+                    "[Auth] Native resume: session recovery failed",
+                    refreshError?.message,
+                  );
+                }
+                // Session truly lost — log out
+                setUser(null);
+              } else {
+                if (__DEV__) {
+                  console.log(
+                    "[Auth] Native resume: ✅ session refreshed successfully",
+                  );
+                }
+              }
+            } else {
+              // Session exists — do NOT proactively refresh!
+              // Supabase's autoRefreshToken: true handles this automatically.
+              // Manual refreshSession() calls here race with auto-refresh and
+              // revoke tokens on other clients.
+
+              // Refresh user data if hidden for a long time
+              if (hiddenDuration > 60000) {
+                await refreshUser();
+              }
+            }
+          } else if (!user) {
+            // No user but we might have a session (app was killed and restarted)
+            const {
+              data: { session },
+            } = await supabase.auth.getSession();
+            if (session) {
+              await refreshUser();
+            }
+          }
         }
 
         lastSessionCheck.current = Date.now();
       } catch (error) {
         // Silent fail - don't disrupt user experience
+        if (__DEV__) {
+          console.warn("[Auth] Visibility change handler error:", error);
+        }
       } finally {
         isCheckingSession.current = false;
       }
@@ -452,23 +625,42 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  // Sign in
+  // Sign in — wrapped in a 20s timeout to prevent stuck loading state
   const signIn = async (
     email: string,
     password: string,
   ): Promise<{ error: string | null }> => {
     try {
       setIsLoading(true);
-      const { user: loggedInUser, error } = await authService.signIn(
-        email,
-        password,
+
+      // Race the entire signIn pipeline (auth + profile + device check)
+      // against a 20-second timeout. Without this, a hung profile fetch
+      // on slow Algerian 3G keeps isLoading=true forever.
+      const signInPromise = authService.signIn(email, password);
+      const timeoutPromise = new Promise<{ user: null; error: string }>(
+        (resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                user: null,
+                error:
+                  "La connexion a pris trop de temps. Veuillez réessayer.",
+              }),
+            20000,
+          ),
       );
+
+      const { user: loggedInUser, error } = await Promise.race([
+        signInPromise,
+        timeoutPromise,
+      ]);
 
       if (error) {
         return { error };
       }
 
       setUser(loggedInUser);
+      lastLoginTime.current = Date.now();
       return { error: null };
     } catch (error) {
       return { error: "An unexpected error occurred" };
@@ -481,6 +673,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signOut = async (): Promise<{ error: string | null }> => {
     try {
       setIsLoading(true);
+
+      // Mark as intentional so onAuthStateChange doesn't try to recover
+      userInitiatedSignOut.current = true;
+
       const { error } = await authService.signOut();
 
       if (error) {
