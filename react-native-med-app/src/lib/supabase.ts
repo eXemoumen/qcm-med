@@ -163,6 +163,39 @@ export const getRedirectUrl = (path: string = 'auth/callback') => {
 
 let _supabaseInstance: SupabaseClient | null = null
 
+// Custom memory lock to prevent Web Locks API from hanging indefinitely on iOS Safari
+// while still providing mutual exclusion within the same JS execution context.
+const memoryLocks = new Map<string, Promise<any>>()
+
+const memoryLock = async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+  const currentLock = memoryLocks.get(name) || Promise.resolve()
+  
+  let releaseLock: () => void
+  const nextLock = new Promise<void>((resolve) => {
+    releaseLock = resolve
+  })
+  
+  memoryLocks.set(name, currentLock.then(() => nextLock))
+  
+  try {
+    // Wait for the previous lock to release, or timeout if stuck
+    await Promise.race([
+      currentLock,
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Lock acquisition timeout')), acquireTimeout)
+      )
+    ])
+    
+    return await fn()
+  } finally {
+    releaseLock!()
+    // Cleanup if this is the last lock in the queue
+    if (memoryLocks.get(name) === currentLock.then(() => nextLock)) {
+      memoryLocks.delete(name)
+    }
+  }
+}
+
 function createSupabaseClient(): SupabaseClient {
   const web = isWeb()
   const storage = web ? getWebStorage() : nativeStorage
@@ -188,6 +221,7 @@ function createSupabaseClient(): SupabaseClient {
       detectSessionInUrl: false,
       storageKey: 'sb-auth-token',
       flowType: web ? 'pkce' : 'implicit',
+      lock: web ? memoryLock : undefined, // Bypass Web Locks on web/Safari
     },
     global: {
       headers: {

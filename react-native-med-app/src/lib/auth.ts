@@ -367,18 +367,35 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     let authError: any = null
 
     try {
-      // Wrap in timeout to prevent infinite hangs on iOS when network stack
-      // is suspended (backgrounding, screen lock, iOS WebKit suspension)
-      const result = await withTimeout(
-        supabase.auth.signInWithPassword({
-          email,
-          password,
-        }),
-        12000,
-        TIMEOUT_ERROR_MESSAGE
-      )
-      authData = result.data
-      authError = result.error
+      // Wrap in timeout and retry loop to prevent infinite hangs on iOS when network stack
+      // is suspended (backgrounding, screen lock) or dropped by iCloud Private Relay
+      let retries = 1;
+      while (retries >= 0) {
+        try {
+          const result = await withTimeout(
+            supabase.auth.signInWithPassword({
+              email,
+              password,
+            }),
+            8000, // 8 second aggressive timeout to force a new connection quickly if dropped
+            TIMEOUT_ERROR_MESSAGE
+          )
+          authData = result.data
+          authError = result.error
+          break; // Break out of retry loop on success or explicit backend error
+        } catch (innerError: any) {
+          const innerMsg = innerError?.message || '';
+          const isTimeout = innerMsg === TIMEOUT_ERROR_MESSAGE;
+          const isNetworkDrop = innerMsg.toLowerCase().includes('fetch') || innerMsg.toLowerCase().includes('network');
+
+          if ((isTimeout || isNetworkDrop) && retries > 0) {
+            retries--;
+            if (__DEV__) console.warn(`[Auth] signInWithPassword error (${innerMsg}), forcing retry... (${retries} left)`);
+            continue; // Retry
+          }
+          throw innerError; // Throw to the outer catch for fallback recovery
+        }
+      }
     } catch (e: any) {
       if (__DEV__) console.error('[Auth] signInWithPassword threw:', e)
       const errorMessage = e?.message || ''
