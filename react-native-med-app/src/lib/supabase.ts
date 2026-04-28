@@ -167,7 +167,7 @@ let _supabaseInstance: SupabaseClient | null = null
 // while still providing mutual exclusion within the same JS execution context.
 const memoryLocks = new Map<string, Promise<any>>()
 
-const memoryLock = async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+const memoryLock = async (name: string, acquireTimeout: number = 10000, fn: () => Promise<any>) => {
   const currentLock = memoryLocks.get(name) || Promise.resolve()
   
   let releaseLock: () => void
@@ -175,26 +175,71 @@ const memoryLock = async (name: string, acquireTimeout: number, fn: () => Promis
     releaseLock = resolve
   })
   
-  memoryLocks.set(name, currentLock.then(() => nextLock))
+  // Use .catch() to ensure the queue continues even if the previous lock failed
+  const queuedLock = currentLock.then(() => nextLock).catch(() => nextLock)
+  memoryLocks.set(name, queuedLock)
+  
+  let timerId: ReturnType<typeof setTimeout> | undefined;
   
   try {
-    // Wait for the previous lock to release, or timeout if stuck
-    await Promise.race([
-      currentLock,
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Lock acquisition timeout')), acquireTimeout)
+    const racePromises: Promise<any>[] = [currentLock.catch(() => {})]
+    
+    // GoTrueClient passes -1 when no timeout should occur
+    if (acquireTimeout > 0) {
+      racePromises.push(
+        new Promise((_, reject) => {
+          timerId = setTimeout(() => {
+            const err = new Error('Lock acquisition timeout') as any
+            err.isAcquireTimeout = true
+            reject(err)
+          }, acquireTimeout)
+        })
       )
-    ])
+    }
+    
+    // Wait for the previous lock to release, or timeout if stuck
+    await Promise.race(racePromises)
     
     return await fn()
   } finally {
+    if (timerId) clearTimeout(timerId)
     releaseLock!()
     // Cleanup if this is the last lock in the queue
-    if (memoryLocks.get(name) === currentLock.then(() => nextLock)) {
+    if (memoryLocks.get(name) === queuedLock) {
       memoryLocks.delete(name)
     }
   }
 }
+
+// Custom fetch with timeout to prevent hanging connections on iOS Safari
+const fetchWithTimeout = async (url: RequestInfo | URL, options?: RequestInit) => {
+  const timeoutMs = 15000; // 15 seconds global fetch timeout
+  
+  if (typeof AbortController !== 'undefined') {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      return response;
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        throw new Error('Network request timeout');
+      }
+      throw error;
+    } finally {
+      clearTimeout(id);
+    }
+  } else {
+    // Fallback for environments without AbortController
+    return new Promise<Response>((resolve, reject) => {
+      const id = setTimeout(() => reject(new Error('Network request timeout')), timeoutMs);
+      fetch(url, options).then(resolve).catch(reject).finally(() => clearTimeout(id));
+    });
+  }
+};
 
 function createSupabaseClient(): SupabaseClient {
   const web = isWeb()
@@ -224,6 +269,7 @@ function createSupabaseClient(): SupabaseClient {
       lock: web ? memoryLock : undefined, // Bypass Web Locks on web/Safari
     },
     global: {
+      fetch: fetchWithTimeout,
       headers: {
         'x-client-info': `fmc-app/${getPlatform()?.OS || 'unknown'}`,
       },
