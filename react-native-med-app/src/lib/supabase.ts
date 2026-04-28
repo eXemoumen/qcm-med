@@ -5,6 +5,57 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+// iOS WebKit can occasionally leave fetch promises pending for a long time
+// after backgrounding, network changes, or a stale auth refresh. Force every
+// Supabase request to resolve or reject so the UI can recover.
+const SUPABASE_REQUEST_TIMEOUT_MS = 30000
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  if (typeof AbortController === 'undefined') {
+    return Promise.race([
+      fetch(input, init),
+      new Promise<Response>((_, reject) =>
+        setTimeout(
+          () => reject(new Error('Supabase request timed out')),
+          SUPABASE_REQUEST_TIMEOUT_MS,
+        ),
+      ),
+    ])
+  }
+
+  const controller = new AbortController()
+  const existingSignal = init?.signal
+  const abortFromExistingSignal = () => controller.abort()
+
+  if (existingSignal?.aborted) {
+    controller.abort()
+  } else {
+    existingSignal?.addEventListener('abort', abortFromExistingSignal, { once: true })
+  }
+
+  const timeoutId = setTimeout(() => {
+    controller.abort()
+  }, SUPABASE_REQUEST_TIMEOUT_MS)
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (controller.signal.aborted && !existingSignal?.aborted) {
+      throw new Error('Supabase request timed out')
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+    existingSignal?.removeEventListener('abort', abortFromExistingSignal)
+  }
+}
+
 // ============================================================================
 // Environment Variable Handling
 // ============================================================================
@@ -190,6 +241,7 @@ function createSupabaseClient(): SupabaseClient {
       flowType: web ? 'pkce' : 'implicit',
     },
     global: {
+      fetch: fetchWithTimeout,
       headers: {
         'x-client-info': `fmc-app/${getPlatform()?.OS || 'unknown'}`,
       },

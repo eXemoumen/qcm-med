@@ -438,11 +438,17 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     let fetchError: any = null
 
     try {
-      const result = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single()
+      const result = await withTimeout<any>(
+        Promise.resolve(
+          supabase
+            .from('users')
+            .select('*')
+            .eq('id', authData.user.id)
+            .single()
+        ),
+        8000,
+        'Profile query timed out'
+      )
 
       userProfile = result.data
       fetchError = result.error
@@ -513,13 +519,22 @@ export async function signIn(email: string, password: string): Promise<{ user: U
         if (__DEV__) console.warn('[Auth] Device check failed (transient error), allowing login:', deviceError)
       }
 
-      // Step 4: Register device - MUST complete before returning
-      // Previously fire-and-forget, which caused a race condition:
-      // handleVisibilityChange → verifySessionExists() would fire before
-      // the row existed, triggering immediate logout on iOS Safari.
+      // Step 4: Register device. Do not let a slow device_sessions write keep
+      // the login button spinning forever.
+      // AuthContext gives registration a 30s grace period before
+      // verifySessionExists() can enforce remote logout.
       if (__DEV__) console.log('[Auth] Registering device...')
       try {
-        await registerDevice(authData.user.id)
+        const registrationPromise = registerDevice(authData.user.id)
+        const registrationResult = await withTimeout(
+          registrationPromise,
+          5000,
+          'Device registration timed out'
+        )
+
+        if (registrationResult.error && __DEV__) {
+          console.warn('[Auth] Device registration returned error:', registrationResult.error)
+        }
       } catch (e) {
         if (__DEV__) console.warn('[Auth] Device registration failed (non-critical):', e)
         // Don't block login — user already authenticated successfully.
@@ -848,11 +863,12 @@ export async function getUserActivationCode(userId: string): Promise<{ code: str
       .from('activation_keys')
       .select('key_code')
       .eq('used_by', userId)
-      .single()
+      .eq('is_used', true)
+      .order('used_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
     if (error) {
-      // It's possible the user doesn't have a code (e.g. manually added), so we handle "no rows" gracefully if needed
-      if (error.code === 'PGRST116') return { code: null, error: null }
       return { code: null, error: error.message }
     }
 
@@ -918,11 +934,17 @@ export async function registerDevice(userId: string): Promise<{ error: string | 
 
 export async function getDeviceSessions(userId: string): Promise<{ sessions: DeviceSession[]; error: string | null }> {
   try {
-    const { data, error } = await supabase
-      .from('device_sessions')
-      .select('*')
-      .eq('user_id', userId)
-      .order('last_active_at', { ascending: false })
+    const { data, error } = await withTimeout<any>(
+      Promise.resolve(
+        supabase
+          .from('device_sessions')
+          .select('*')
+          .eq('user_id', userId)
+          .order('last_active_at', { ascending: false })
+      ),
+      8000,
+      'Device sessions query timed out'
+    )
 
     if (error) {
       return { sessions: [], error: error.message }
