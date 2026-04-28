@@ -103,7 +103,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Grace period after login: skip verifySessionExists() checks to prevent
   // race condition where device registration hasn't propagated yet
   const lastLoginTime = useRef<number>(0);
-  const LOGIN_GRACE_PERIOD_MS = 30000; // 30 seconds
+  const LOGIN_GRACE_PERIOD_MS = getPlatformOS() === "web" ? 60000 : 30000;
+  
+  // Guard visibility handler against running during sign in
+  const isSigningIn = useRef(false);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -371,12 +374,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Wait for initial load to complete
       if (!initialLoadComplete.current) return;
 
-      // Skip if we checked very recently (within 3 seconds)
+      // Skip if we checked very recently
       const timeSinceLastCheck = Date.now() - lastSessionCheck.current;
-      if (timeSinceLastCheck < 3000) return;
+      if (timeSinceLastCheck < SESSION_CHECK_COOLDOWN) return;
 
-      // Skip if already checking
-      if (isCheckingSession.current) return;
+      // Skip if already checking or if signing in
+      if (isCheckingSession.current || isSigningIn.current) return;
 
       const isWebPlatform = getPlatformOS() === "web";
 
@@ -426,7 +429,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // This catches cases where admin deleted the session while app was in background
             // BUT: skip this check right after login to avoid race with registerDevice()
             const msSinceLogin = Date.now() - lastLoginTime.current;
-            if (msSinceLogin > LOGIN_GRACE_PERIOD_MS) {
+            if (isWebPlatform) {
+              if (__DEV__) {
+                console.log(
+                  "[Auth] Skipping verifySessionExists on web (handled by realtime)",
+                );
+              }
+            } else if (msSinceLogin > LOGIN_GRACE_PERIOD_MS) {
               const sessionExists = await authService.verifySessionExists();
               if (!sessionExists) {
                 if (__DEV__) {
@@ -632,11 +641,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   ): Promise<{ error: string | null }> => {
     try {
       setIsLoading(true);
+      isSigningIn.current = true;
 
       // Race the entire signIn pipeline (auth + profile + device check)
-      // against a 20-second timeout. Without this, a hung profile fetch
-      // on slow Algerian 3G keeps isLoading=true forever.
+      // against a timeout (35s on web due to WebKit overhead, 20s native).
+      // Without this, a hung profile fetch on slow 3G keeps isLoading=true forever.
       const signInPromise = authService.signIn(email, password);
+      const timeoutMs = getPlatformOS() === "web" ? 35000 : 20000;
       const timeoutPromise = new Promise<{ user: null; error: string }>(
         (resolve) =>
           setTimeout(
@@ -646,7 +657,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 error:
                   "La connexion a pris trop de temps. Veuillez réessayer.",
               }),
-            20000,
+            timeoutMs,
           ),
       );
 
@@ -665,6 +676,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error) {
       return { error: "An unexpected error occurred" };
     } finally {
+      isSigningIn.current = false;
       setIsLoading(false);
     }
   };
