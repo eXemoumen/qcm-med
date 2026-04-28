@@ -100,6 +100,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Time-based cooldown to prevent recovery loops (e.g., refreshSession() triggering another SIGNED_OUT)
   const lastRecoveryAttempt = useRef<number>(0);
   const RECOVERY_COOLDOWN_MS = 5000; // 5 seconds
+  // Grace period after login: skip verifySessionExists() checks to prevent
+  // race condition where device registration hasn't propagated yet
+  const lastLoginTime = useRef<number>(0);
+  const LOGIN_GRACE_PERIOD_MS = 30000; // 30 seconds
 
   // Check for existing session on mount
   useEffect(() => {
@@ -420,15 +424,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
             // IMPORTANT: Also check if device session still exists in DB
             // This catches cases where admin deleted the session while app was in background
-            const sessionExists = await authService.verifySessionExists();
-            if (!sessionExists) {
-              if (__DEV__) {
-                console.log(
-                  "[Auth] Device session not found in DB, logging out",
-                );
+            // BUT: skip this check right after login to avoid race with registerDevice()
+            const msSinceLogin = Date.now() - lastLoginTime.current;
+            if (msSinceLogin > LOGIN_GRACE_PERIOD_MS) {
+              const sessionExists = await authService.verifySessionExists();
+              if (!sessionExists) {
+                if (__DEV__) {
+                  console.log(
+                    "[Auth] Device session not found in DB, logging out",
+                  );
+                }
+                await signOutInternal("Votre session a été révoquée.");
+                return;
               }
-              await signOutInternal("Votre session a été révoquée.");
-              return;
+            } else if (__DEV__) {
+              console.log(
+                `[Auth] Skipping verifySessionExists — within login grace period (${Math.round(msSinceLogin / 1000)}s < ${LOGIN_GRACE_PERIOD_MS / 1000}s)`,
+              );
             }
 
             // Optionally refresh user data if hidden for a while
@@ -648,6 +660,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
 
       setUser(loggedInUser);
+      lastLoginTime.current = Date.now();
       return { error: null };
     } catch (error) {
       return { error: "An unexpected error occurred" };

@@ -219,6 +219,21 @@ let _refreshPromise: Promise<{ data: { session: any }; error: any }> | null = nu
  * firing a second one (which would revoke the first's token).
  */
 export async function safeRefreshSession(): Promise<{ data: { session: any }; error: any }> {
+  // Guard: don't attempt refresh if there's no session/refresh_token
+  // This prevents 400 "Refresh Token Not Found" errors on iOS Safari
+  // when the session was lost but storage still has stale data.
+  try {
+    const { data: { session: currentSession } } = await supabase.auth.getSession()
+    if (!currentSession?.refresh_token) {
+      if (__DEV__) {
+        console.log('[Supabase] safeRefreshSession: no refresh token, skipping')
+      }
+      return { data: { session: null }, error: { message: 'No refresh token available', name: 'AuthSessionMissingError', status: 400 } }
+    }
+  } catch {
+    // If getSession itself fails, fall through and let refreshSession handle it
+  }
+
   if (_refreshPromise) {
     if (__DEV__) {
       console.log('[Supabase] safeRefreshSession: waiting for in-flight refresh...')

@@ -513,11 +513,18 @@ export async function signIn(email: string, password: string): Promise<{ user: U
         if (__DEV__) console.warn('[Auth] Device check failed (transient error), allowing login:', deviceError)
       }
 
-      // Step 4: Register device - NON-BLOCKING
+      // Step 4: Register device - MUST complete before returning
+      // Previously fire-and-forget, which caused a race condition:
+      // handleVisibilityChange → verifySessionExists() would fire before
+      // the row existed, triggering immediate logout on iOS Safari.
       if (__DEV__) console.log('[Auth] Registering device...')
-      registerDevice(authData.user.id).catch(e => {
-        console.warn('[Auth] Device registration failed (non-blocking):', e)
-      })
+      try {
+        await registerDevice(authData.user.id)
+      } catch (e) {
+        if (__DEV__) console.warn('[Auth] Device registration failed (non-critical):', e)
+        // Don't block login — user already authenticated successfully.
+        // The 30s grace period in AuthContext prevents premature logout.
+      }
     }
 
     // Debug device sessions in development (non-blocking)
