@@ -432,17 +432,23 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       return { user: null, error: 'Échec de la connexion. Veuillez réessayer.' }
     }
 
-    // Step 2: Fetch user profile
+    // Step 2: Fetch user profile (with timeout to prevent hung queries on slow 3G)
     if (__DEV__) console.log('[Auth] Fetching user profile for:', authData.user.id)
     let userProfile: any = null
     let fetchError: any = null
 
     try {
-      const result = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single()
+      const result = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('users')
+            .select('*')
+            .eq('id', authData.user.id)
+            .single()
+        ),
+        10000,
+        'Profile fetch timeout'
+      ) as { data: any; error: any }
 
       userProfile = result.data
       fetchError = result.error
@@ -495,28 +501,38 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     }
 
     // Step 3: Check device limit (skip for reviewers)
+    // Uses a timeout to fail-open: if the check takes too long (slow 3G), allow login
     const isReviewer = userProfile.is_reviewer === true
     if (!isReviewer) {
       if (__DEV__) console.log('[Auth] Checking device limit...')
-      const { canLogin, error: deviceError, isLimitReached } = await checkDeviceLimit(authData.user.id)
-      
-      // Only block login if the actual device limit is reached (not for transient errors)
-      if (!canLogin && isLimitReached) {
-        if (__DEV__) console.warn('[Auth] Device limit reached, signing out')
-        _isIntentionalSignOut = true
-        await supabase.auth.signOut()
-        return { user: null, error: deviceError }
-      }
-      
-      // Log transient errors but allow login (fail-open for network issues)
-      if (!canLogin && !isLimitReached) {
-        if (__DEV__) console.warn('[Auth] Device check failed (transient error), allowing login:', deviceError)
+      try {
+        const { canLogin, error: deviceError, isLimitReached } = await withTimeout(
+          checkDeviceLimit(authData.user.id),
+          8000,
+          'Device check timeout'
+        ) as { canLogin: boolean; error: string | null; isLimitReached: boolean }
+        
+        // Only block login if the actual device limit is reached (not for transient errors)
+        if (!canLogin && isLimitReached) {
+          if (__DEV__) console.warn('[Auth] Device limit reached, signing out')
+          _isIntentionalSignOut = true
+          await supabase.auth.signOut()
+          return { user: null, error: deviceError }
+        }
+        
+        // Log transient errors but allow login (fail-open for network issues)
+        if (!canLogin && !isLimitReached) {
+          if (__DEV__) console.warn('[Auth] Device check failed (transient error), allowing login:', deviceError)
+        }
+      } catch (e: any) {
+        // Timeout or error — fail-open: allow login on slow connections
+        if (__DEV__) console.warn('[Auth] Device check timed out or errored, allowing login:', e?.message)
       }
 
       // Step 4: Register device (fire-and-forget, non-blocking).
       // AuthContext gives registration a 30s grace period before
       // verifySessionExists() can enforce remote logout.
-      if (__DEV__) console.log('[Auth] Registering device...')
+      if (__DEV__) console.log('[Auth] Registering device (background)...')
       registerDevice(authData.user.id).catch((e) => {
         if (__DEV__) console.warn('[Auth] Device registration failed (non-critical):', e)
       })
@@ -529,8 +545,8 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       })
     }
 
-    // Cache profile for offline use
-    await cacheUserProfile(userProfile as User)
+    // Cache profile for offline use (non-blocking)
+    cacheUserProfile(userProfile as User).catch(() => {})
 
     if (__DEV__) console.log('[Auth] Sign in complete!')
     return { user: userProfile as User, error: null }
