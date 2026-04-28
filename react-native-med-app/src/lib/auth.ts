@@ -439,14 +439,14 @@ export async function signIn(email: string, password: string): Promise<{ user: U
 
     try {
       const result = await withTimeout<any>(
-        Promise.resolve(
-          supabase
+        (async () => {
+          return await supabase
             .from('users')
             .select('*')
             .eq('id', authData.user.id)
             .single()
-        ),
-        8000,
+        })(),
+        10000,
         'Profile query timed out'
       )
 
@@ -935,14 +935,14 @@ export async function registerDevice(userId: string): Promise<{ error: string | 
 export async function getDeviceSessions(userId: string): Promise<{ sessions: DeviceSession[]; error: string | null }> {
   try {
     const { data, error } = await withTimeout<any>(
-      Promise.resolve(
-        supabase
+      (async () => {
+        return await supabase
           .from('device_sessions')
           .select('*')
           .eq('user_id', userId)
           .order('last_active_at', { ascending: false })
-      ),
-      8000,
+      })(),
+      10000,
       'Device sessions query timed out'
     )
 
