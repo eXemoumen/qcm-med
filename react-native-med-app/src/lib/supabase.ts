@@ -211,34 +211,29 @@ const memoryLock = async (name: string, acquireTimeout: number = 10000, fn: () =
   }
 }
 
-// Custom fetch with timeout to prevent hanging connections on iOS Safari
-const fetchWithTimeout = async (url: RequestInfo | URL, options?: RequestInit) => {
+// Custom fetch with timeout to prevent hanging connections on iOS Safari.
+// IMPORTANT: Do NOT use AbortController here. Safari/WebKit aggressively cleans
+// up connections tied to an AbortController, even after the response headers
+// arrive. This causes "Failed to fetch" errors when Supabase SDK tries to read
+// response.json() after our finally{} block clears the timeout. Instead we use
+// a simple Promise.race — the underlying fetch completes naturally (or gets GC'd)
+// while we reject the wrapper promise on timeout.
+const fetchWithTimeout = (url: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
   const timeoutMs = 15000; // 15 seconds global fetch timeout
-  
-  if (typeof AbortController !== 'undefined') {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      return response;
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        throw new Error('Network request timeout');
-      }
-      throw error;
-    } finally {
-      clearTimeout(id);
-    }
-  } else {
-    // Fallback for environments without AbortController
-    return new Promise<Response>((resolve, reject) => {
-      const id = setTimeout(() => reject(new Error('Network request timeout')), timeoutMs);
-      fetch(url, options).then(resolve).catch(reject).finally(() => clearTimeout(id));
-    });
-  }
+
+  // Pass options through unchanged — this preserves any `signal` that
+  // the Supabase SDK passes internally (e.g. for its own abort logic).
+  const fetchPromise = fetch(url, options);
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    const id = setTimeout(() => {
+      reject(new Error('Network request timeout'));
+    }, timeoutMs);
+    // If the fetch settles first, clean up the timer to prevent leaks.
+    fetchPromise.then(() => clearTimeout(id), () => clearTimeout(id));
+  });
+
+  return Promise.race([fetchPromise, timeoutPromise]);
 };
 
 function createSupabaseClient(): SupabaseClient {
