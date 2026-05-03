@@ -219,7 +219,8 @@ const memoryLock = async (name: string, acquireTimeout: number = 10000, fn: () =
 // a simple Promise.race — the underlying fetch completes naturally (or gets GC'd)
 // while we reject the wrapper promise on timeout.
 const fetchWithTimeout = (url: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
-  const timeoutMs = 15000; // 15 seconds global fetch timeout
+  const timeoutMs = 20000; // 20s global fetch timeout — must be larger than auth-level
+                           // timeouts (12s signIn, 10s profile) so those fire first
 
   // Pass options through unchanged — this preserves any `signal` that
   // the Supabase SDK passes internally (e.g. for its own abort logic).

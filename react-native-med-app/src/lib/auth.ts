@@ -377,7 +377,8 @@ export async function signIn(email: string, password: string): Promise<{ user: U
               email,
               password,
             }),
-            8000, // 8 second aggressive timeout to force a new connection quickly if dropped
+            12000, // 12s timeout — 8s was too aggressive for iOS cellular where
+                   // DNS + TLS + CORS preflight alone can take 5-8s
             TIMEOUT_ERROR_MESSAGE
           )
           authData = result.data
