@@ -453,14 +453,17 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     if (__DEV__) console.log('[Auth] Parallel fetching profile and checking device limit...')
     
     // Set up profile fetch promise
+    // Use async IIFE instead of Promise.resolve() — the Supabase query builder
+    // is a thenable (not a real Promise). Promise.resolve() on a thenable can
+    // cause timing issues where the HTTP request fires late or not at all.
     const profilePromise = withTimeout(
-      Promise.resolve(
-        supabase
+      (async () => {
+        return await supabase
           .from('users')
           .select('*')
           .eq('id', authData.user.id)
           .single()
-      ),
+      })(),
       10000,
       'Profile fetch timeout'
     ) as Promise<{ data: any; error: any }>

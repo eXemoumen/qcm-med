@@ -605,17 +605,40 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  // Sign up
+  // Sign up — wrapped in a timeout to prevent stuck loading state
+  // signUp does 4 sequential RPCs (validateKey → auth.signUp → createProfile → activateSubscription)
+  // any of which can hang on slow networks or exhausted DB connections.
   const signUp = async (
     data: RegisterFormData,
   ): Promise<{ error: string | null; needsEmailVerification?: boolean }> => {
     try {
       setIsLoading(true);
+
+      // Race the entire signUp pipeline against a timeout
+      // (35s on web due to WebKit overhead, 20s native).
+      const signUpPromise = authService.signUp(data);
+      const timeoutMs = getPlatformOS() === "web" ? 35000 : 20000;
+      const timeoutPromise = new Promise<{
+        user: null;
+        error: string;
+        needsEmailVerification?: boolean;
+      }>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              user: null,
+              error:
+                "L'inscription a pris trop de temps. Veuillez réessayer.",
+            }),
+          timeoutMs,
+        ),
+      );
+
       const {
         user: newUser,
         error,
         needsEmailVerification,
-      } = await authService.signUp(data);
+      } = await Promise.race([signUpPromise, timeoutPromise]);
 
       if (error) {
         return { error };
