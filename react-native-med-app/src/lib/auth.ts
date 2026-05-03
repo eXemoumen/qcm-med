@@ -453,6 +453,14 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     // Step 2 & 3: Parallelize Profile Fetch and Device Check (to save time on slow WebKit networks)
     if (__DEV__) console.log('[Auth] Parallel fetching profile and checking device limit...')
     
+    // IMPORTANT: On iOS Safari, signInWithPassword may return before the SDK
+    // finishes persisting the session internally (memoryLock + storage write).
+    // If we fire the profile fetch immediately, it can go out WITHOUT the Bearer
+    // token, causing it to fail silently (RLS blocks, CORS preflight fails).
+    // Fix: explicitly wait for the session to be available before proceeding.
+    const { data: { session: confirmedSession } } = await supabase.auth.getSession()
+    if (__DEV__) console.log('[Auth] Session confirmed:', { hasSession: !!confirmedSession, hasToken: !!confirmedSession?.access_token })
+    
     // Set up profile fetch promise with retry on network failure.
     // CRITICAL: Without .catch(), a fetch-level rejection (e.g. iOS dropping the
     // connection between auth and profile requests) propagates through Promise.all
