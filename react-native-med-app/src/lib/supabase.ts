@@ -211,31 +211,20 @@ const memoryLock = async (name: string, acquireTimeout: number = 10000, fn: () =
   }
 }
 
-// Custom fetch with timeout to prevent hanging connections on iOS Safari.
-// IMPORTANT: Do NOT use AbortController here. Safari/WebKit aggressively cleans
-// up connections tied to an AbortController, even after the response headers
-// arrive. This causes "Failed to fetch" errors when Supabase SDK tries to read
-// response.json() after our finally{} block clears the timeout. Instead we use
-// a simple Promise.race — the underlying fetch completes naturally (or gets GC'd)
-// while we reject the wrapper promise on timeout.
-const fetchWithTimeout = (url: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
-  const timeoutMs = 20000; // 20s global fetch timeout — must be larger than auth-level
-                           // timeouts (12s signIn, 10s profile) so those fire first
-
-  // Pass options through unchanged — this preserves any `signal` that
-  // the Supabase SDK passes internally (e.g. for its own abort logic).
-  const fetchPromise = fetch(url, options);
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    const id = setTimeout(() => {
-      reject(new Error('Network request timeout'));
-    }, timeoutMs);
-    // If the fetch settles first, clean up the timer to prevent leaks.
-    fetchPromise.then(() => clearTimeout(id), () => clearTimeout(id));
-  });
-
-  return Promise.race([fetchPromise, timeoutPromise]);
-};
+// IMPORTANT: Do NOT wrap fetch in a custom timeout/Promise.race wrapper.
+// iOS Safari/WebKit has issues when fetch() promises are wrapped with .then()
+// handlers + Promise.race: it corrupts the HTTP/2 connection state, causing
+// subsequent requests on the same connection to fail silently (the request
+// never leaves the device). This was the root cause of profile fetch failures
+// on iPhone/iPad where auth succeeded (200) but profile fetch never reached
+// the server.
+//
+// Timeout protection is handled at the application level instead:
+//   - withTimeout() on signIn (10s) and profile fetch (10s)
+//   - Promise.race master timeout in AuthContext (35s web / 20s native)
+//
+// If you need to add fetch-level timeout in the future, use AbortController
+// with signal — but test on iOS Safari first.
 
 function createSupabaseClient(): SupabaseClient {
   const web = isWeb()
@@ -265,7 +254,8 @@ function createSupabaseClient(): SupabaseClient {
       lock: web ? memoryLock : undefined, // Bypass Web Locks on web/Safari
     },
     global: {
-      fetch: fetchWithTimeout,
+      // Using native fetch — do NOT add a custom fetch wrapper here.
+      // See comment above for why fetchWithTimeout was removed (iOS Safari issue).
       headers: {
         'x-client-info': `fmc-app/${getPlatform()?.OS || 'unknown'}`,
       },
