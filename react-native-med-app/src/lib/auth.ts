@@ -377,8 +377,8 @@ export async function signIn(email: string, password: string): Promise<{ user: U
               email,
               password,
             }),
-            12000, // 12s timeout — 8s was too aggressive for iOS cellular where
-                   // DNS + TLS + CORS preflight alone can take 5-8s
+            10000, // 10s auth timeout — server processes in ~100ms but iOS cellular
+                   // needs 3-8s for DNS + TLS + CORS preflight round-trip
             TIMEOUT_ERROR_MESSAGE
           )
           authData = result.data
@@ -453,10 +453,11 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     // Step 2 & 3: Parallelize Profile Fetch and Device Check (to save time on slow WebKit networks)
     if (__DEV__) console.log('[Auth] Parallel fetching profile and checking device limit...')
     
-    // Set up profile fetch promise
-    // Use async IIFE instead of Promise.resolve() — the Supabase query builder
-    // is a thenable (not a real Promise). Promise.resolve() on a thenable can
-    // cause timing issues where the HTTP request fires late or not at all.
+    // Set up profile fetch promise with retry on network failure.
+    // CRITICAL: Without .catch(), a fetch-level rejection (e.g. iOS dropping the
+    // connection between auth and profile requests) propagates through Promise.all
+    // to the outer catch, returning "Problème de connexion réseau" even though
+    // auth already succeeded on the server (confirmed via server logs).
     const profilePromise = withTimeout(
       (async () => {
         return await supabase
@@ -467,7 +468,27 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       })(),
       10000,
       'Profile fetch timeout'
-    ) as Promise<{ data: any; error: any }>
+    ).catch(async (err: any) => {
+      // First attempt failed — retry once (iOS often recovers on the second try)
+      if (__DEV__) console.warn('[Auth] Profile fetch failed, retrying once:', err?.message)
+      try {
+        return await withTimeout(
+          (async () => {
+            return await supabase
+              .from('users')
+              .select('*')
+              .eq('id', authData.user.id)
+              .single()
+          })(),
+          10000,
+          'Profile fetch retry timeout'
+        )
+      } catch (retryErr: any) {
+        if (__DEV__) console.error('[Auth] Profile fetch retry also failed:', retryErr?.message)
+        // Return error as data instead of rejecting — prevents crashing Promise.all
+        return { data: null, error: { message: retryErr?.message || 'Profile fetch failed', code: 'FETCH_ERROR' } }
+      }
+    }) as Promise<{ data: any; error: any }>
 
     // Set up device check promise
     const devicePromise = withTimeout(
