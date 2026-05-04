@@ -169,30 +169,50 @@ function RootLayoutContent() {
 
     fetchMaintenanceStatus();
 
-    // Subscribe to realtime changes for instant updates
-    const channel = supabase
-      .channel("maintenance_mode_channel")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "app_config",
-          filter: "key=eq.maintenance_mode",
-        },
-        (payload) => {
+    // Only subscribe to Realtime changes when user is logged in.
+    // On the login page (user=null), there's no need for live updates,
+    // and the WebSocket connection can crash with "Cannot read 'payload'"
+    // errors that corrupt the JS execution context and cause login to hang.
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    if (user) {
+      channel = supabase
+        .channel("maintenance_mode_channel")
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "app_config",
+            filter: "key=eq.maintenance_mode",
+          },
+          (payload) => {
+            // Null-check to prevent TypeError on malformed WebSocket messages
+            const newValue = payload?.new?.value;
+            if (newValue !== undefined) {
+              if (__DEV__) {
+                console.log("[Maintenance] Status changed:", newValue);
+              }
+              setMaintenanceMode(newValue === "true");
+            }
+          },
+        )
+        .subscribe((status, err) => {
           if (__DEV__) {
-            console.log("[Maintenance] Status changed:", payload.new.value);
+            if (status === "SUBSCRIBED") {
+              console.log("[Maintenance] Realtime subscription active");
+            } else if (status === "CHANNEL_ERROR") {
+              console.warn("[Maintenance] Realtime subscription error:", err?.message);
+            }
           }
-          setMaintenanceMode(payload.new.value === "true");
-        },
-      )
-      .subscribe();
+        });
+    }
 
     return () => {
-      supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
-  }, []);
+  }, [user]);
 
   // Web doesn't need video splash
   useEffect(() => {

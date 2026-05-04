@@ -314,9 +314,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
               await signOutInternal("Votre session a été révoquée à distance.");
             },
           )
-          .subscribe((status) => {
+          .subscribe((status, err) => {
             if (__DEV__) {
               console.log("[Auth] Realtime subscription status:", status);
+              if (status === "CHANNEL_ERROR") {
+                console.warn("[Auth] Session realtime channel error:", err?.message);
+              }
             }
           });
       } catch (error) {
