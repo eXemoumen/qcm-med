@@ -2,7 +2,7 @@
 // Authentication Service
 // ============================================================================
 
-import { supabase, getRedirectUrl, isSupabaseConfigured, getSupabaseConfigStatus } from './supabase'
+import { supabase, getRedirectUrl, isSupabaseConfigured, getSupabaseConfigStatus, supabaseUrl, supabaseAnonKey } from './supabase'
 import { User, RegisterFormData, ProfileUpdateData, ActivationResponse, DeviceSession } from '@/types'
 import { getDeviceId, getDeviceName, getDeviceFingerprint } from './deviceId'
 import { clearQueryCache } from './query-client'
@@ -453,49 +453,48 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     // Step 2 & 3: Parallelize Profile Fetch and Device Check (to save time on slow WebKit networks)
     if (__DEV__) console.log('[Auth] Parallel fetching profile and checking device limit...')
     
-    // IMPORTANT: On iOS Safari, signInWithPassword may return before the SDK
-    // finishes persisting the session internally (memoryLock + storage write).
-    // If we fire the profile fetch immediately, it can go out WITHOUT the Bearer
-    // token, causing it to fail silently (RLS blocks, CORS preflight fails).
-    // Fix: explicitly wait for the session to be available before proceeding.
-    const { data: { session: confirmedSession } } = await supabase.auth.getSession()
-    if (__DEV__) console.log('[Auth] Session confirmed:', { hasSession: !!confirmedSession, hasToken: !!confirmedSession?.access_token })
+    // CRITICAL: Use direct fetch() with the access token from auth response.
+    // Do NOT use supabase.from('users').select() here because the SDK internally
+    // calls getSession() through memoryLock to attach the Bearer token. After
+    // signInWithPassword, the lock can still be held by the session save operation,
+    // causing the fetch to WAIT up to 10s before even starting the HTTP request.
+    // The withTimeout(8s) races against this lock wait, not the actual fetch —
+    // so it fires before the request ever leaves the device. This is the root
+    // cause of the iOS login hang.
+    const accessToken = authData.session?.access_token
+    if (__DEV__) console.log('[Auth] Using direct fetch for profile (bypassing SDK lock)')
     
-    // Set up profile fetch promise with retry on network failure.
-    // CRITICAL: Without .catch(), a fetch-level rejection (e.g. iOS dropping the
-    // connection between auth and profile requests) propagates through Promise.all
-    // to the outer catch, returning "Problème de connexion réseau" even though
-    // auth already succeeded on the server (confirmed via server logs).
     const profilePromise = withTimeout(
       (async () => {
-        return await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authData.user.id)
-          .single()
+        // Direct PostgREST call — no SDK lock, fires IMMEDIATELY
+        const response = await fetch(
+          `${supabaseUrl}/rest/v1/users?id=eq.${authData.user.id}&select=*`,
+          {
+            headers: {
+              'apikey': supabaseAnonKey,
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json',
+              'Accept-Profile': 'public',
+              // PostgREST: return single object instead of array
+              'Prefer': 'return=representation',
+            },
+          }
+        )
+        if (!response.ok) {
+          const text = await response.text()
+          return { data: null, error: { message: `Profile fetch failed: ${response.status} ${text}`, code: 'HTTP_ERROR' } }
+        }
+        const rows = await response.json()
+        // PostgREST returns an array; we want the single row
+        const userData = Array.isArray(rows) ? rows[0] || null : rows
+        return { data: userData, error: null }
       })(),
-      10000,
+      8000, // 8s — server processes in <100ms, 8s is plenty for network RTT
       'Profile fetch timeout'
     ).catch(async (err: any) => {
-      // First attempt failed — retry once (iOS often recovers on the second try)
-      if (__DEV__) console.warn('[Auth] Profile fetch failed, retrying once:', err?.message)
-      try {
-        return await withTimeout(
-          (async () => {
-            return await supabase
-              .from('users')
-              .select('*')
-              .eq('id', authData.user.id)
-              .single()
-          })(),
-          10000,
-          'Profile fetch retry timeout'
-        )
-      } catch (retryErr: any) {
-        if (__DEV__) console.error('[Auth] Profile fetch retry also failed:', retryErr?.message)
-        // Return error as data instead of rejecting — prevents crashing Promise.all
-        return { data: null, error: { message: retryErr?.message || 'Profile fetch failed', code: 'FETCH_ERROR' } }
-      }
+      if (__DEV__) console.warn('[Auth] Profile fetch failed:', err?.message)
+      // Return error as data instead of rejecting — prevents crashing Promise.all
+      return { data: null, error: { message: err?.message || 'Profile fetch failed', code: 'FETCH_ERROR' } }
     }) as Promise<{ data: any; error: any }>
 
     // Set up device check promise

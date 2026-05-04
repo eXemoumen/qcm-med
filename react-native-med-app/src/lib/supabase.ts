@@ -369,3 +369,7 @@ export function getSupabaseConfigStatus(): { url: boolean; key: boolean; valid: 
 }
 
 export default supabase
+
+// Export URL and key for direct PostgREST calls that bypass SDK lock
+// (used in auth.ts for profile fetch after login — see comments there)
+export { supabaseUrl, supabaseAnonKey }
