@@ -251,12 +251,14 @@ function createSupabaseClient(): SupabaseClient {
       detectSessionInUrl: false,
       storageKey: 'sb-auth-token',
       flowType: web ? 'pkce' : 'implicit',
-      // IMPORTANT: Do NOT provide a custom lock function here.
-      // The previous memoryLock caused ALL SDK calls (getSession, from().select(),
-      // rpc()) to queue behind the session save after signInWithPassword.
-      // On iOS, this blocked data loading for 10+ seconds, showing skeleton screens.
-      // The SDK's built-in locking (Web Locks API or internal mutex) handles
-      // concurrent access correctly without serializing all reads.
+      // CRITICAL: Use a no-op lock on web to prevent post-login deadlocks.
+      // Both our custom memoryLock AND the SDK's built-in Web Locks API
+      // (navigator.locks) cause deadlocks on iPad/iOS: after signInWithPassword,
+      // the session save acquires the lock, and ALL subsequent SDK calls
+      // (getSession, from().select(), rpc()) block behind it indefinitely.
+      // A no-op lock simply executes the callback immediately — safe because
+      // our app has a single Supabase client instance with no concurrent writes.
+      ...(web ? { lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<any>) => await fn() } : {}),
     },
     global: {
       // Using native fetch — do NOT add a custom fetch wrapper here.
