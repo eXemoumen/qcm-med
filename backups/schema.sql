@@ -195,93 +195,6 @@ CREATE TYPE "public"."year_level" AS ENUM (
 ALTER TYPE "public"."year_level" OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text") RETURNS json
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
-    AS $$
-DECLARE
-  v_duration_days INTEGER;
-  v_key_id uuid;
-  v_expires_at TIMESTAMPTZ;
-  v_user_created_at TIMESTAMPTZ;
-BEGIN
-  -- ============================================================================
-  -- Authorization Guard (Updated for Registration Flow)
-  -- ============================================================================
-  -- Allow activation if:
-  -- 1. Caller is the user being activated (auth.uid() = p_user_id)
-  -- 2. OR user profile was created within last 5 minutes (registration grace period)
-  -- 3. OR caller is admin/owner
-  
-  IF auth.uid() IS DISTINCT FROM p_user_id THEN
-    -- Check registration grace period: profile created < 5 minutes ago
-    SELECT created_at INTO v_user_created_at
-    FROM public.users
-    WHERE id = p_user_id;
-    
-    -- If user doesn't exist, deny immediately
-    IF v_user_created_at IS NULL THEN
-      RETURN json_build_object('success', false, 'error', 'User not found');
-    END IF;
-    
-    -- Check if within 5-minute registration grace period
-    IF v_user_created_at < NOW() - INTERVAL '5 minutes' THEN
-      -- Not in grace period, check if caller is admin/owner
-      IF NOT EXISTS (
-        SELECT 1 FROM public.users
-        WHERE id = auth.uid()
-        AND role IN ('admin', 'owner')
-      ) THEN
-        RETURN json_build_object('success', false, 'error', 'Unauthorized');
-      END IF;
-    END IF;
-    -- If within grace period, allow activation to proceed
-  END IF;
-
-  -- ============================================================================
-  -- Atomic check-and-mark: UPDATE ... RETURNING
-  -- ============================================================================
-  UPDATE public.activation_keys
-  SET is_used = TRUE,
-      used_by = p_user_id,
-      used_at = NOW(),
-      expires_at = (NOW() + (duration_days || ' days')::INTERVAL)::DATE + TIME '23:59:59.999'
-  WHERE key_code = p_key_code
-    AND is_used = FALSE
-  RETURNING id, duration_days INTO v_key_id, v_duration_days;
-
-  IF v_key_id IS NULL THEN
-    RETURN json_build_object('success', false, 'error', 'Invalid or already used key');
-  END IF;
-
-  -- Calculate expiration timestamp (end of day for the expiration date)
-  v_expires_at := (NOW() + (v_duration_days || ' days')::INTERVAL)::DATE + TIME '23:59:59.999';
-
-  -- Update user subscription
-  UPDATE public.users
-  SET is_paid = TRUE,
-      subscription_expires_at = v_expires_at
-  WHERE id = p_user_id;
-
-  RETURN json_build_object(
-    'success', true, 
-    'duration_days', v_duration_days,
-    'expires_at', v_expires_at
-  );
-END;
-$$;
-
-
-ALTER FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text") OWNER TO "postgres";
-
-
-COMMENT ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text") IS 'Activates a subscription for a user using an activation key.
-Authorization: Allows activation if (1) caller is the user being activated,
-(2) user profile was created within last 5 minutes (registration grace period),
-or (3) caller is admin/owner. Uses atomic UPDATE...RETURNING to prevent race conditions.';
-
-
-
 CREATE OR REPLACE FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean DEFAULT false) RETURNS json
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -443,30 +356,6 @@ ALTER FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_custo
 
 COMMENT ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") IS 'Creates a pending payment record when checkout is initiated';
 
-
-
-CREATE OR REPLACE FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text") RETURNS "jsonb"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-BEGIN
-  INSERT INTO public.users (
-    id, email, full_name, speciality, year_of_study, region, role, is_paid
-  ) VALUES (
-    p_user_id, p_email, p_full_name, p_speciality, p_year_of_study, p_region, 'student', FALSE
-  );
-  
-  RETURN jsonb_build_object('success', TRUE, 'message', 'User profile created');
-EXCEPTION
-  WHEN unique_violation THEN
-    RETURN jsonb_build_object('success', FALSE, 'message', 'User already exists');
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object('success', FALSE, 'message', SQLERRM);
-END;
-$$;
-
-
-ALTER FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text", "p_faculty" "text" DEFAULT NULL::"text") RETURNS "jsonb"
@@ -1032,6 +921,7 @@ ALTER FUNCTION "public"."has_active_subscription"("p_user_id" "uuid") OWNER TO "
 
 CREATE OR REPLACE FUNCTION "public"."is_admin_or_higher"() RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
 BEGIN
   RETURN EXISTS (
@@ -1306,6 +1196,7 @@ ALTER FUNCTION "public"."toggle_plan_active"("plan_id" "uuid") OWNER TO "postgre
 
 CREATE OR REPLACE FUNCTION "public"."update_caisse_transaction_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
+    SET "search_path" TO 'public'
     AS $$
 BEGIN
   NEW.updated_at = now();
@@ -4032,12 +3923,6 @@ GRANT USAGE ON SCHEMA "public" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "anon";
 GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "service_role";
@@ -4050,15 +3935,9 @@ GRANT ALL ON FUNCTION "public"."cascade_course_rename"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") TO "anon";
+REVOKE ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text") TO "service_role";
 
 
 
@@ -4176,7 +4055,7 @@ GRANT ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "tex
 
 
 
-GRANT ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") TO "service_role";
 
