@@ -251,7 +251,12 @@ function createSupabaseClient(): SupabaseClient {
       detectSessionInUrl: false,
       storageKey: 'sb-auth-token',
       flowType: web ? 'pkce' : 'implicit',
-      lock: web ? memoryLock : undefined, // Bypass Web Locks on web/Safari
+      // IMPORTANT: Do NOT provide a custom lock function here.
+      // The previous memoryLock caused ALL SDK calls (getSession, from().select(),
+      // rpc()) to queue behind the session save after signInWithPassword.
+      // On iOS, this blocked data loading for 10+ seconds, showing skeleton screens.
+      // The SDK's built-in locking (Web Locks API or internal mutex) handles
+      // concurrent access correctly without serializing all reads.
     },
     global: {
       // Using native fetch — do NOT add a custom fetch wrapper here.

@@ -453,16 +453,11 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     // Step 2 & 3: Parallelize Profile Fetch and Device Check (to save time on slow WebKit networks)
     if (__DEV__) console.log('[Auth] Parallel fetching profile and checking device limit...')
     
-    // CRITICAL: Use direct fetch() with the access token from auth response.
-    // Do NOT use supabase.from('users').select() here because the SDK internally
-    // calls getSession() through memoryLock to attach the Bearer token. After
-    // signInWithPassword, the lock can still be held by the session save operation,
-    // causing the fetch to WAIT up to 10s before even starting the HTTP request.
-    // The withTimeout(8s) races against this lock wait, not the actual fetch —
-    // so it fires before the request ever leaves the device. This is the root
-    // cause of the iOS login hang.
+    // Use direct fetch with access token from auth response for profile.
+    // This is faster than supabase.from().select() because it fires immediately
+    // without waiting for the SDK's internal session persistence to complete.
     const accessToken = authData.session?.access_token
-    if (__DEV__) console.log('[Auth] Using direct fetch for profile (bypassing SDK lock)')
+    if (__DEV__) console.log('[Auth] Direct fetch for profile with auth token')
     
     const profilePromise = withTimeout(
       (async () => {
