@@ -46,31 +46,47 @@ export function WebHeader() {
   }
 
   const navItems: NavItem[] = [
-    {
-      label: "Accueil",
-      path: "/(tabs)",
-      iconComponent: (color) => <HomeIcon size={20} color={color} />,
-    },
-    {
-      label: "Ressources",
-      path: "/(tabs)/resources",
-      iconComponent: (color) => <ResourcesIcon size={20} color={color} />,
-    },
-    {
-      label: "Sauvegardées",
-      path: "/saved",
-      iconComponent: (color) => <SavesIcon size={20} color={color} />,
-    },
+    ...(user
+      ? [
+          {
+            label: "Accueil",
+            path: "/(tabs)",
+            iconComponent: (color: string) => (
+              <HomeIcon size={20} color={color} />
+            ),
+          },
+          {
+            label: "Ressources",
+            path: "/(tabs)/resources",
+            iconComponent: (color: string) => (
+              <ResourcesIcon size={20} color={color} />
+            ),
+          },
+          {
+            label: "Sauvegardées",
+            path: "/saved",
+            iconComponent: (color: string) => (
+              <SavesIcon size={20} color={color} />
+            ),
+          },
+        ]
+      : []),
     {
       label: "Outils",
       path: "/outils",
-      iconComponent: (color) => <Calculator size={20} color={color} />,
+      iconComponent: (color: string) => <Calculator size={20} color={color} />,
     },
-    {
-      label: "Profil",
-      path: "/(tabs)/profile",
-      iconComponent: (color) => <ProfileIcon size={20} color={color} />,
-    },
+    ...(user
+      ? [
+          {
+            label: "Profil",
+            path: "/(tabs)/profile",
+            iconComponent: (color: string) => (
+              <ProfileIcon size={20} color={color} />
+            ),
+          },
+        ]
+      : []),
   ];
 
   const isActive = (path: string) => {
@@ -115,7 +131,7 @@ export function WebHeader() {
       >
         {/* Logo & Brand */}
         <TouchableOpacity
-          onPress={() => router.push("/(tabs)")}
+          onPress={() => router.push(user ? "/(tabs)" : "/landing")}
           style={{ flexDirection: "row", alignItems: "center" }}
         >
           <View
@@ -176,7 +192,7 @@ export function WebHeader() {
         </View>
 
         {/* User Info */}
-        {user && (
+        {user ? (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <View style={{ marginRight: 12, alignItems: "flex-end" }}>
               <Text
@@ -214,6 +230,33 @@ export function WebHeader() {
                 {user.full_name?.charAt(0)?.toUpperCase() || "👤"}
               </Text>
             </View>
+          </View>
+        ) : (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <TouchableOpacity
+              onPress={() => router.push("/(auth)/login")}
+              style={{
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+              }}
+            >
+              <Text style={{ color: colors.textSecondary, fontWeight: "600", fontSize: 14 }}>
+                Se connecter
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push("/(auth)/register")}
+              style={{
+                backgroundColor: colors.primary,
+                paddingHorizontal: 20,
+                paddingVertical: 10,
+                borderRadius: 12,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
+                S'inscrire
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>

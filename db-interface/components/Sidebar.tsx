@@ -14,6 +14,7 @@ const navigation = [
   { name: "Historique", href: "/history", icon: "📜" },
   { name: "Ressources", href: "/resources", icon: "📁" },
   { name: "Santé Données", href: "/data-health", icon: "🩺" },
+  { name: "QCM Calc", href: "/qcm-calc", icon: "🧮" },
 ];
 
 const ownerOnlyNavigation = [

@@ -1,7 +1,7 @@
 import { Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { Calculator, ChevronLeft } from "lucide-react-native";
+import { Calculator, ChevronLeft, ClipboardCheck } from "lucide-react-native";
 import { WebHeader } from "@/components/ui/WebHeader";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -169,6 +169,100 @@ export default function OutilsScreen() {
                       numberOfLines={2}
                     >
                       Calculez votre moyenne annuelle avec les coefficients de votre année.
+                    </Text>
+                  </View>
+                  <View
+                    style={{
+                      backgroundColor: colors.primaryMuted,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontSize: 12,
+                        fontWeight: "800",
+                      }}
+                    >
+                      Ouvrir
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+
+            <Pressable 
+              onPress={() => router.push("/qcm-calc" as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Ouvrir le calculateur QCM"
+              accessibilityHint="Ouvre l'outil QCM Calc pour calculer votre note d'examen"
+            >
+              <View
+                style={{
+                  backgroundColor: colors.card,
+                  borderRadius: isDesktop ? 20 : 18,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  overflow: "hidden",
+                  shadowColor: "#000",
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: isDark ? 0.24 : 0.08,
+                  shadowRadius: 8,
+                  elevation: 3,
+                }}
+              >
+                <View
+                  style={{
+                    height: 4,
+                    backgroundColor: "#09b2ac",
+                    width: "100%",
+                  }}
+                />
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: isDesktop ? 18 : 14,
+                    gap: 14,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 16,
+                      backgroundColor: isDark
+                        ? "rgba(9, 178, 172, 0.18)"
+                        : "rgba(9, 178, 172, 0.1)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <ClipboardCheck size={25} color="#09b2ac" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{
+                        color: colors.text,
+                        fontSize: isDesktop ? 17 : 15,
+                        fontWeight: "800",
+                        marginBottom: 4,
+                      }}
+                    >
+                      QCM Calc
+                    </Text>
+                    <Text
+                      style={{
+                        color: colors.textMuted,
+                        fontSize: isDesktop ? 14 : 13,
+                        lineHeight: isDesktop ? 20 : 18,
+                      }}
+                      numberOfLines={2}
+                    >
+                      Calculez votre note d'examen QCM avec les réponses correctes.
                     </Text>
                   </View>
                   <View
