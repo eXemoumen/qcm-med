@@ -611,6 +611,15 @@ export default function WelcomeScreen() {
               />
             </View>
 
+            <View style={{ marginTop: 16 }}>
+              <AnimatedButton
+                title="Calculer ma moyenne"
+                onPress={() => router.push("/moyen-calc")}
+                variant="outline"
+                size="md"
+              />
+            </View>
+
             <Text
               style={{
                 fontSize: 13,
@@ -930,6 +939,20 @@ export default function WelcomeScreen() {
               onPress={() => router.push("/(auth)/login")}
               variant="secondary"
               size="lg"
+            />
+          </Animated.View>
+
+          <Animated.View
+            style={{
+              opacity: button2Opacity,
+              marginTop: 12,
+            }}
+          >
+            <AnimatedButton
+              title="Calculer ma moyenne"
+              onPress={() => router.push("/moyen-calc")}
+              variant="outline"
+              size="md"
             />
           </Animated.View>
 

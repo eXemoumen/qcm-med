@@ -21,6 +21,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
+import { Calculator } from "lucide-react-native";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { getModulesWithCounts } from "@/lib/modules";
@@ -772,6 +773,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
           </Animated.View>
+
 
           {/* Modules Section */}
           <View style={{ marginTop: isDesktop ? 24 : 16, width: "100%" }}>

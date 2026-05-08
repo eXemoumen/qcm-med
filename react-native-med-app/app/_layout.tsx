@@ -335,6 +335,14 @@ function RootLayoutContent() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="auth/callback" />
         <Stack.Screen
+          name="moyen-calc"
+          options={{ headerShown: false, title: "Moyen Calc" }}
+        />
+        <Stack.Screen
+          name="outils"
+          options={{ headerShown: false, title: "Outils" }}
+        />
+        <Stack.Screen
           name="module/[id]"
           options={{ headerShown: true, title: "Module" }}
         />

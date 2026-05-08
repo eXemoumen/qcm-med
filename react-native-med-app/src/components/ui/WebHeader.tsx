@@ -15,6 +15,7 @@ import {
 import { router, usePathname } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { Calculator } from "lucide-react-native";
 import {
   HomeIcon,
   ResourcesIcon,
@@ -59,6 +60,11 @@ export function WebHeader() {
       label: "Sauvegardées",
       path: "/saved",
       iconComponent: (color) => <SavesIcon size={20} color={color} />,
+    },
+    {
+      label: "Outils",
+      path: "/outils",
+      iconComponent: (color) => <Calculator size={20} color={color} />,
     },
     {
       label: "Profil",

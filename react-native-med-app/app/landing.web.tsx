@@ -6,7 +6,7 @@ import {
   Play, Smartphone, ChevronRight, Menu, X, Mail, CheckCircle2,
   ArrowRight, MapPin, Map, Share2, Award, Camera,
   HelpCircle, CloudOff, Filter, Edit3, Send, Instagram, Facebook,
-  Loader2
+  Loader2, Calculator
 } from 'lucide-react'
 import { supabase } from '../src/lib/supabase'
 
@@ -144,6 +144,7 @@ export default function LandingWeb() {
   }, [scrollY])
 
   const goAuth = () => router.push('/(auth)/welcome' as any)
+  const goMoyenCalc = () => router.push('/moyen-calc' as any)
 
   return (
     <div className="min-h-screen bg-[#fff9ef] text-[#1d1b16] font-['Cairo'] overflow-x-hidden">
@@ -177,6 +178,7 @@ export default function LandingWeb() {
           <a className={`font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`} href="#features">Fonctionnalités</a>
           <a className={`font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`} href="#tarifs">Tarifs</a>
           <a className={`font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`} href="#points">Points de vente</a>
+          <button onClick={goMoyenCalc} className={`bg-transparent border-0 p-0 cursor-pointer font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`}>Moyen Calc</button>
         </div>
         
         <div className="hidden md:flex items-center gap-4">
@@ -200,6 +202,7 @@ export default function LandingWeb() {
             <a href="#features" onClick={() => setMobileMenuOpen(false)} className="font-['Manrope'] text-lg font-bold text-slate-800">Fonctionnalités</a>
             <a href="#tarifs" onClick={() => setMobileMenuOpen(false)} className="font-['Manrope'] text-lg font-bold text-slate-800">Tarifs</a>
             <a href="#points" onClick={() => setMobileMenuOpen(false)} className="font-['Manrope'] text-lg font-bold text-slate-800">Points de vente</a>
+            <button onClick={() => { setMobileMenuOpen(false); goMoyenCalc(); }} className="bg-transparent border-0 p-0 cursor-pointer text-left font-['Manrope'] text-lg font-bold text-slate-800">Moyen Calc</button>
           </div>
           <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
             <button onClick={goAuth} className="w-full py-3 rounded-xl border border-slate-200 text-[#09b2ac] font-bold font-['Manrope']">Se connecter</button>
@@ -245,13 +248,17 @@ export default function LandingWeb() {
             </motion.p>
             
             {/* CTAs */}
-            <motion.div variants={fadeIn} className="flex flex-col sm:flex-row items-center justify-center gap-6 mb-24">
+            <motion.div variants={fadeIn} className="flex flex-col sm:flex-row sm:flex-wrap items-center justify-center gap-6 mb-24">
               <button onClick={goAuth} className="w-full sm:w-auto bg-[#006a66] text-white font-['Manrope'] font-bold text-lg px-10 py-5 rounded-[3rem] flex items-center justify-center gap-2 hover:bg-[#00504d] transition-all shadow-xl shadow-[#006a66]/20">
                 Commencer gratuitement
                 <ArrowRight size={20} />
               </button>
               <button onClick={goAuth} className="w-full sm:w-auto border-2 border-[#09b2ac]/30 text-[#09b2ac] font-['Manrope'] font-bold text-lg px-10 py-5 rounded-[3rem] hover:bg-[#09b2ac]/5 transition-all">
                 J'ai déjà un compte
+              </button>
+              <button onClick={goMoyenCalc} className="w-full sm:w-auto border-2 border-[#9941ff]/25 text-[#2a0054] bg-white font-['Manrope'] font-bold text-lg px-10 py-5 rounded-[3rem] flex items-center justify-center gap-2 hover:bg-[#f8f0ff] transition-all shadow-lg shadow-[#9941ff]/10">
+                <Calculator size={20} />
+                Moyen Calc
               </button>
             </motion.div>
           </motion.div>

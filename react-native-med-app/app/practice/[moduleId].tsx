@@ -22,6 +22,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { getQuestions } from "@/lib/questions";
 import { saveTestAttempt } from "@/lib/stats";
 import { toggleSaveQuestion, getSavedQuestionIds } from "@/lib/saved";
+import { recordAnswerResults } from "@/lib/answerHistory";
 import {
   submitQuestionReport,
   ReportType,
@@ -416,6 +417,9 @@ export default function PracticeScreen() {
       submittedQuestions.has(q.id),
     );
 
+    // Build per-question results for answer history tracking
+    const perQuestionResults: { questionId: string; isCorrect: boolean }[] = [];
+
     for (const question of answeredQuestions) {
       const userAnswers = selectedAnswers[question.id] || [];
       const correctAnswers = question.answers
@@ -425,7 +429,11 @@ export default function PracticeScreen() {
         userAnswers.length === correctAnswers.length &&
         userAnswers.every((a) => correctAnswers.includes(a));
       if (isCorrect) correctCount++;
+      perQuestionResults.push({ questionId: question.id, isCorrect });
     }
+
+    // Persist per-question answer history locally
+    await recordAnswerResults(perQuestionResults);
 
     const totalQuestions = answeredQuestions.length;
     const scorePercentage =
