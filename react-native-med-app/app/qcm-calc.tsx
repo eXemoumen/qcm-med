@@ -459,92 +459,134 @@ export default function QcmCalcScreen() {
             <Text style={{ fontSize: 14, fontWeight: "800", color: "#09b2ac", textTransform: "uppercase", letterSpacing: 1.5 }}>
               Votre Résultat
             </Text>
-            <Text style={{ fontSize: isDesktop ? 56 : 48, fontWeight: "900", color: colors.text }}>
-              {result.grade.toFixed(2)}
-            </Text>
-            <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textMuted }}>/ 20</Text>
-            <View style={{ flexDirection: "row", gap: 20, marginTop: 4 }}>
-              <View style={{ alignItems: "center" }}>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Score</Text>
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                  {result.totalScore}/{result.countedQuestions}
-                </Text>
-              </View>
-              <View style={{ width: 1, backgroundColor: colors.border }} />
-              <View style={{ alignItems: "center" }}>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Pourcentage</Text>
-                <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                  {result.percentage.toFixed(1)}%
-                </Text>
-              </View>
-            </View>
-            {/* Pass/fail indicator */}
-            <View style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              backgroundColor: result.grade >= 10 ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-              paddingHorizontal: 14,
-              paddingVertical: 8,
-              borderRadius: 10,
-              marginTop: 4,
-            }}>
-              {result.grade >= 10
-                ? <Check size={16} color="#22c55e" />
-                : <X size={16} color="#ef4444" />}
-              <Text style={{
-                color: result.grade >= 10 ? "#22c55e" : "#ef4444",
-                fontSize: 13,
-                fontWeight: "800",
-              }}>
-                {result.grade >= 10 ? "Validé ✨" : "Non validé"}
-              </Text>
-            </View>
 
-            {/* Section scores */}
-            {result.sectionScores.length > 0 && (
-              <View style={{ width: "100%", gap: 8, marginTop: 4 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1, textAlign: "center" }}>
-                  Détail par section
-                </Text>
-                {result.sectionScores.map((ss, idx) => (
-                  <View
-                    key={idx}
-                    style={{
-                      flexDirection: "row",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      backgroundColor: ss.type === "théorique"
-                        ? (isDark ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.06)")
-                        : (isDark ? "rgba(245,158,11,0.1)" : "rgba(245,158,11,0.06)"),
-                      borderRadius: 10,
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
-                      borderWidth: 1,
-                      borderColor: ss.type === "théorique"
-                        ? (isDark ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.15)")
-                        : (isDark ? "rgba(245,158,11,0.2)" : "rgba(245,158,11,0.15)"),
-                    }}
-                  >
-                    <View>
-                      <Text style={{ color: ss.type === "théorique" ? "#3B82F6" : "#F59E0B", fontSize: 11, fontWeight: "800", textTransform: "uppercase" }}>
+            {/* ── Years 4-6 (with sections): show each section separately, no combined average ── */}
+            {result.sectionScores.length > 0 ? (
+              <View style={{ width: "100%", gap: 12 }}>
+                {result.sectionScores.map((ss, idx) => {
+                  const sectionColor = ss.type === "théorique" ? "#3B82F6" : "#F59E0B";
+                  const bgColor = ss.type === "théorique"
+                    ? (isDark ? "rgba(59,130,246,0.1)" : "rgba(59,130,246,0.06)")
+                    : (isDark ? "rgba(245,158,11,0.1)" : "rgba(245,158,11,0.06)");
+                  const borderColorSection = ss.type === "théorique"
+                    ? (isDark ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.15)")
+                    : (isDark ? "rgba(245,158,11,0.2)" : "rgba(245,158,11,0.15)");
+
+                  return (
+                    <View
+                      key={idx}
+                      style={{
+                        backgroundColor: bgColor,
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        borderColor: borderColorSection,
+                        padding: isDesktop ? 20 : 16,
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      {/* Section label */}
+                      <Text style={{ color: sectionColor, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5 }}>
                         {ss.label}
                       </Text>
-                      <Text style={{ color: colors.textMuted, fontSize: 10, marginTop: 2 }}>
-                        Q{ss.from}→Q{ss.to}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={{ color: colors.text, fontSize: 18, fontWeight: "900" }}>
-                        {ss.grade.toFixed(2)}/20
-                      </Text>
                       <Text style={{ color: colors.textMuted, fontSize: 10 }}>
-                        {ss.totalScore}/{ss.countedQuestions} • {ss.percentage.toFixed(1)}%
+                        Q{ss.from} → Q{ss.to}
                       </Text>
+
+                      {/* Section grade */}
+                      <Text style={{ fontSize: isDesktop ? 44 : 36, fontWeight: "900", color: colors.text }}>
+                        {ss.grade.toFixed(2)}
+                      </Text>
+                      <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textMuted }}>/ 20</Text>
+
+                      {/* Section stats */}
+                      <View style={{ flexDirection: "row", gap: 16, marginTop: 2 }}>
+                        <View style={{ alignItems: "center" }}>
+                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>Score</Text>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
+                            {ss.totalScore}/{ss.countedQuestions}
+                          </Text>
+                        </View>
+                        <View style={{ width: 1, backgroundColor: colors.border }} />
+                        <View style={{ alignItems: "center" }}>
+                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>Pourcentage</Text>
+                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
+                            {ss.percentage.toFixed(1)}%
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Section pass/fail */}
+                      <View style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 6,
+                        backgroundColor: ss.grade >= 10 ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 8,
+                        marginTop: 2,
+                      }}>
+                        {ss.grade >= 10
+                          ? <Check size={14} color="#22c55e" />
+                          : <X size={14} color="#ef4444" />}
+                        <Text style={{
+                          color: ss.grade >= 10 ? "#22c55e" : "#ef4444",
+                          fontSize: 12,
+                          fontWeight: "800",
+                        }}>
+                          {ss.grade >= 10 ? "Validé ✨" : "Non validé"}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
+            ) : (
+              /* ── Years 1-3 (no sections): show single overall grade ── */
+              <>
+                <Text style={{ fontSize: isDesktop ? 56 : 48, fontWeight: "900", color: colors.text }}>
+                  {result.grade.toFixed(2)}
+                </Text>
+                <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textMuted }}>/ 20</Text>
+                <View style={{ flexDirection: "row", gap: 20, marginTop: 4 }}>
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Score</Text>
+                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                      {result.totalScore}/{result.countedQuestions}
+                    </Text>
+                  </View>
+                  <View style={{ width: 1, backgroundColor: colors.border }} />
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Pourcentage</Text>
+                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
+                      {result.percentage.toFixed(1)}%
+                    </Text>
+                  </View>
+                </View>
+                {/* Pass/fail indicator */}
+                <View style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: result.grade >= 10 ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                  paddingHorizontal: 14,
+                  paddingVertical: 8,
+                  borderRadius: 10,
+                  marginTop: 4,
+                }}>
+                  {result.grade >= 10
+                    ? <Check size={16} color="#22c55e" />
+                    : <X size={16} color="#ef4444" />}
+                  <Text style={{
+                    color: result.grade >= 10 ? "#22c55e" : "#ef4444",
+                    fontSize: 13,
+                    fontWeight: "800",
+                  }}>
+                    {result.grade >= 10 ? "Validé ✨" : "Non validé"}
+                  </Text>
+                </View>
+              </>
             )}
           </View>
         )}

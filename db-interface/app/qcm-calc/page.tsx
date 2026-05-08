@@ -31,6 +31,9 @@ import {
 
 const ANSWER_LABELS = ['A', 'B', 'C', 'D', 'E'] as const;
 
+// Grades that support théorique/clinique sections (only 4th year and above)
+const GRADES_WITH_SECTIONS = new Set(['4ème année', '5ème année', '6ème année']);
+
 const INITIAL_FORM: QcmExamFormData = {
   name: '',
   description: '',
@@ -311,7 +314,15 @@ export default function QcmCalcPage() {
                 {/* Grade */}
                 <div>
                   <label className={labelCls}>Niveau *</label>
-                  <select value={formData.grade} onChange={e => setFormData({ ...formData, grade: e.target.value })} className={inputCls} required>
+                  <select value={formData.grade} onChange={e => {
+                    const newGrade = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      grade: newGrade,
+                      // Auto-clear sections when switching to a grade that doesn't support them
+                      sections: GRADES_WITH_SECTIONS.has(newGrade) ? prev.sections : [],
+                    }));
+                  }} className={inputCls} required>
                     {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                 </div>
@@ -389,7 +400,8 @@ export default function QcmCalcPage() {
               </div>
             </div>
 
-            {/* Section: Sections Builder */}
+            {/* Section: Sections Builder — only for 4th year and above */}
+            {GRADES_WITH_SECTIONS.has(formData.grade) && (
             <div className="space-y-6">
               <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] flex items-center gap-3">
                 <span className="flex-1 h-px bg-slate-100 dark:bg-white/5" />
@@ -487,6 +499,7 @@ export default function QcmCalcPage() {
                 </button>
               </div>
             </div>
+            )}
 
             {/* Section: Answer Grid (grouped by sections if defined) */}
             <div className="space-y-6">
