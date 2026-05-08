@@ -16,7 +16,7 @@ import type {
 
 /** Convert form answers (numeric keys) to JSONB format (string keys) */
 function formAnswersToJsonb(
-  answers: Record<number, string[]>
+  answers: Record<number, string[] | string[][]>
 ): CorrectAnswersMap {
   const result: CorrectAnswersMap = {};
   for (const [key, value] of Object.entries(answers)) {
@@ -183,6 +183,9 @@ export async function createQcmExam(formData: QcmExamFormData) {
 /** Update an existing QCM exam */
 export async function updateQcmExam(id: string, formData: QcmExamFormData) {
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Non authentifié');
+
     const { data, error } = await supabase
       .from('qcm_exams')
       .update({
@@ -227,6 +230,9 @@ export async function updateQcmExam(id: string, formData: QcmExamFormData) {
 /** Delete a QCM exam */
 export async function deleteQcmExam(id: string) {
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Non authentifié');
+
     const { error } = await supabase
       .from('qcm_exams')
       .delete()

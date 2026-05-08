@@ -99,9 +99,19 @@ export default function QcmCalcPage() {
   const toggleAnswer = (questionNum: number, label: string) => {
     setFormData(prev => {
       const current = prev.correct_answers[questionNum] || [];
-      const updated = current.includes(label)
-        ? current.filter(l => l !== label)
-        : [...current, label];
+      const isNested = current.length > 0 && Array.isArray(current[0]);
+      // If it's a nested array, we only modify the first set in the UI
+      let workingSet = isNested ? [...(current[0] as unknown as string[])] : [...(current as string[])];
+      
+      const updatedSet = workingSet.includes(label)
+        ? workingSet.filter(l => l !== label)
+        : [...workingSet, label];
+        
+      // If it was nested, reconstruct the nested array keeping other sets intact
+      const updated = isNested 
+        ? [updatedSet, ...(current.slice(1) as string[][])]
+        : updatedSet;
+
       return {
         ...prev,
         correct_answers: { ...prev.correct_answers, [questionNum]: updated },
@@ -157,13 +167,20 @@ export default function QcmCalcPage() {
 
   const handleEdit = (exam: QcmExam) => {
     // Convert JSONB answers back to form format
-    const answers: Record<number, string[]> = {};
+    const answers: Record<number, string[] | string[][]> = {};
+    let hasNested = false;
     for (const [key, val] of Object.entries(exam.correct_answers)) {
-      // Handle both flat arrays and nested arrays
       if (Array.isArray(val) && val.length > 0 && Array.isArray(val[0])) {
-        answers[Number(key)] = (val as string[][])[0]; // Use first set for editing
+        hasNested = true;
+        answers[Number(key)] = val as string[][]; // Preserve full nested structure
       } else {
         answers[Number(key)] = val as string[];
+      }
+    }
+
+    if (hasNested) {
+      if (!window.confirm("Cet examen contient des combinaisons de réponses multiples. L'interface ne permet d'éditer que la première combinaison, mais les autres seront préservées. Continuer ?")) {
+        return;
       }
     }
 
@@ -519,7 +536,10 @@ export default function QcmCalcPage() {
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                       {allQuestions.map(qNum => {
-                        const selected = formData.correct_answers[qNum] || [];
+                        const rawSelected = formData.correct_answers[qNum] || [];
+                        const selected = (rawSelected.length > 0 && Array.isArray(rawSelected[0])) 
+                          ? (rawSelected[0] as unknown as string[]) 
+                          : (rawSelected as string[]);
                         const hasAnswer = selected.length > 0;
                         return (
                           <div key={qNum} className={`p-3 rounded-xl border transition-all ${hasAnswer ? 'border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10' : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'}`}>
@@ -561,7 +581,10 @@ export default function QcmCalcPage() {
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                             {sectionQuestions.map(qNum => {
-                              const selected = formData.correct_answers[qNum] || [];
+                              const rawSelected = formData.correct_answers[qNum] || [];
+                              const selected = (rawSelected.length > 0 && Array.isArray(rawSelected[0])) 
+                                ? (rawSelected[0] as unknown as string[]) 
+                                : (rawSelected as string[]);
                               const hasAnswer = selected.length > 0;
                               return (
                                 <div key={qNum} className={`p-3 rounded-xl border transition-all bg-white dark:bg-slate-900 ${hasAnswer ? 'border-primary-200 dark:border-primary-800' : 'border-red-200 dark:border-red-800'}`}>
@@ -592,7 +615,10 @@ export default function QcmCalcPage() {
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                           {unassigned.map(qNum => {
-                            const selected = formData.correct_answers[qNum] || [];
+                            const rawSelected = formData.correct_answers[qNum] || [];
+                            const selected = (rawSelected.length > 0 && Array.isArray(rawSelected[0])) 
+                              ? (rawSelected[0] as unknown as string[]) 
+                              : (rawSelected as string[]);
                             const hasAnswer = selected.length > 0;
                             return (
                               <div key={qNum} className={`p-3 rounded-xl border transition-all ${hasAnswer ? 'border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10' : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'}`}>

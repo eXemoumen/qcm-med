@@ -58,7 +58,7 @@ export interface QcmExamFormData {
   subject: string;
   num_questions: number;
   test_type: TestType;
-  correct_answers: Record<number, string[]>;
+  correct_answers: Record<number, string[] | string[][]>;
   session: ExamSession;
   rotation: string;
   exam_type: ExamKind;

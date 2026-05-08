@@ -666,7 +666,7 @@ export default function WelcomeScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ minHeight: "100%", paddingBottom: 60 }}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 60 }}
         showsVerticalScrollIndicator={false}
         bounces={true}
         alwaysBounceVertical={true}
