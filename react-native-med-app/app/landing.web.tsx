@@ -146,7 +146,7 @@ export default function LandingWeb() {
   const goAuth = () => router.push('/(auth)/welcome' as any)
 
   return (
-    <div className="min-h-screen bg-[#fff9ef] text-[#1d1b16] font-['Cairo'] overflow-x-hidden selection:bg-[#09b2ac] selection:text-white">
+    <div className="min-h-screen bg-[#fff9ef] text-[#1d1b16] font-['Cairo'] overflow-x-hidden">
       <style dangerouslySetInnerHTML={{ __html: `
         .orb-gradient {
             background: radial-gradient(circle at 50% 50%, rgba(9, 178, 172, 0.15) 0%, rgba(153, 65, 255, 0.1) 50%, transparent 100%);
