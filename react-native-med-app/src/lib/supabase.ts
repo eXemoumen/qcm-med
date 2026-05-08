@@ -211,30 +211,20 @@ const memoryLock = async (name: string, acquireTimeout: number = 10000, fn: () =
   }
 }
 
-// Custom fetch with timeout to prevent hanging connections on iOS Safari.
-// IMPORTANT: Do NOT use AbortController here. Safari/WebKit aggressively cleans
-// up connections tied to an AbortController, even after the response headers
-// arrive. This causes "Failed to fetch" errors when Supabase SDK tries to read
-// response.json() after our finally{} block clears the timeout. Instead we use
-// a simple Promise.race — the underlying fetch completes naturally (or gets GC'd)
-// while we reject the wrapper promise on timeout.
-const fetchWithTimeout = (url: RequestInfo | URL, options?: RequestInit): Promise<Response> => {
-  const timeoutMs = 15000; // 15 seconds global fetch timeout
-
-  // Pass options through unchanged — this preserves any `signal` that
-  // the Supabase SDK passes internally (e.g. for its own abort logic).
-  const fetchPromise = fetch(url, options);
-
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    const id = setTimeout(() => {
-      reject(new Error('Network request timeout'));
-    }, timeoutMs);
-    // If the fetch settles first, clean up the timer to prevent leaks.
-    fetchPromise.then(() => clearTimeout(id), () => clearTimeout(id));
-  });
-
-  return Promise.race([fetchPromise, timeoutPromise]);
-};
+// IMPORTANT: Do NOT wrap fetch in a custom timeout/Promise.race wrapper.
+// iOS Safari/WebKit has issues when fetch() promises are wrapped with .then()
+// handlers + Promise.race: it corrupts the HTTP/2 connection state, causing
+// subsequent requests on the same connection to fail silently (the request
+// never leaves the device). This was the root cause of profile fetch failures
+// on iPhone/iPad where auth succeeded (200) but profile fetch never reached
+// the server.
+//
+// Timeout protection is handled at the application level instead:
+//   - withTimeout() on signIn (10s) and profile fetch (10s)
+//   - Promise.race master timeout in AuthContext (35s web / 20s native)
+//
+// If you need to add fetch-level timeout in the future, use AbortController
+// with signal — but test on iOS Safari first.
 
 function createSupabaseClient(): SupabaseClient {
   const web = isWeb()
@@ -261,10 +251,18 @@ function createSupabaseClient(): SupabaseClient {
       detectSessionInUrl: false,
       storageKey: 'sb-auth-token',
       flowType: web ? 'pkce' : 'implicit',
-      lock: web ? memoryLock : undefined, // Bypass Web Locks on web/Safari
+      // CRITICAL: Use a no-op lock on web to prevent post-login deadlocks.
+      // Both our custom memoryLock AND the SDK's built-in Web Locks API
+      // (navigator.locks) cause deadlocks on iPad/iOS: after signInWithPassword,
+      // the session save acquires the lock, and ALL subsequent SDK calls
+      // (getSession, from().select(), rpc()) block behind it indefinitely.
+      // A no-op lock simply executes the callback immediately — safe because
+      // our app has a single Supabase client instance with no concurrent writes.
+      ...(web ? { lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<any>) => await fn() } : {}),
     },
     global: {
-      fetch: fetchWithTimeout,
+      // Using native fetch — do NOT add a custom fetch wrapper here.
+      // See comment above for why fetchWithTimeout was removed (iOS Safari issue).
       headers: {
         'x-client-info': `fmc-app/${getPlatform()?.OS || 'unknown'}`,
       },
@@ -378,3 +376,7 @@ export function getSupabaseConfigStatus(): { url: boolean; key: boolean; valid: 
 }
 
 export default supabase
+
+// Export URL and key for direct PostgREST calls that bypass SDK lock
+// (used in auth.ts for profile fetch after login — see comments there)
+export { supabaseUrl, supabaseAnonKey }

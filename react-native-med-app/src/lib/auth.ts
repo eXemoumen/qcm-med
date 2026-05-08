@@ -2,7 +2,7 @@
 // Authentication Service
 // ============================================================================
 
-import { supabase, getRedirectUrl, isSupabaseConfigured, getSupabaseConfigStatus } from './supabase'
+import { supabase, getRedirectUrl, isSupabaseConfigured, getSupabaseConfigStatus, supabaseUrl, supabaseAnonKey } from './supabase'
 import { User, RegisterFormData, ProfileUpdateData, ActivationResponse, DeviceSession } from '@/types'
 import { getDeviceId, getDeviceName, getDeviceFingerprint } from './deviceId'
 import { clearQueryCache } from './query-client'
@@ -377,7 +377,8 @@ export async function signIn(email: string, password: string): Promise<{ user: U
               email,
               password,
             }),
-            8000, // 8 second aggressive timeout to force a new connection quickly if dropped
+            10000, // 10s auth timeout — server processes in ~100ms but iOS cellular
+                   // needs 3-8s for DNS + TLS + CORS preflight round-trip
             TIMEOUT_ERROR_MESSAGE
           )
           authData = result.data
@@ -452,18 +453,44 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     // Step 2 & 3: Parallelize Profile Fetch and Device Check (to save time on slow WebKit networks)
     if (__DEV__) console.log('[Auth] Parallel fetching profile and checking device limit...')
     
-    // Set up profile fetch promise
+    // Use direct fetch with access token from auth response for profile.
+    // This is faster than supabase.from().select() because it fires immediately
+    // without waiting for the SDK's internal session persistence to complete.
+    const accessToken = authData.session?.access_token
+    if (__DEV__) console.log('[Auth] Direct fetch for profile with auth token')
+    
     const profilePromise = withTimeout(
-      Promise.resolve(
-        supabase
-          .from('users')
-          .select('*')
-          .eq('id', authData.user.id)
-          .single()
-      ),
-      10000,
+      (async () => {
+        // Direct PostgREST call — no SDK lock, fires IMMEDIATELY
+        const response = await fetch(
+          `${supabaseUrl}/rest/v1/users?id=eq.${authData.user.id}&select=*`,
+          {
+            headers: {
+              'apikey': supabaseAnonKey,
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json',
+              'Accept-Profile': 'public',
+              // PostgREST: return single object instead of array
+              'Prefer': 'return=representation',
+            },
+          }
+        )
+        if (!response.ok) {
+          const text = await response.text()
+          return { data: null, error: { message: `Profile fetch failed: ${response.status} ${text}`, code: 'HTTP_ERROR' } }
+        }
+        const rows = await response.json()
+        // PostgREST returns an array; we want the single row
+        const userData = Array.isArray(rows) ? rows[0] || null : rows
+        return { data: userData, error: null }
+      })(),
+      8000, // 8s — server processes in <100ms, 8s is plenty for network RTT
       'Profile fetch timeout'
-    ) as Promise<{ data: any; error: any }>
+    ).catch(async (err: any) => {
+      if (__DEV__) console.warn('[Auth] Profile fetch failed:', err?.message)
+      // Return error as data instead of rejecting — prevents crashing Promise.all
+      return { data: null, error: { message: err?.message || 'Profile fetch failed', code: 'FETCH_ERROR' } }
+    }) as Promise<{ data: any; error: any }>
 
     // Set up device check promise
     const devicePromise = withTimeout(
