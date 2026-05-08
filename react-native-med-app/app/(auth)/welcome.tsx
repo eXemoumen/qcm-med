@@ -71,6 +71,10 @@ export default function WelcomeScreen() {
   const button2Slide = useRef(new Animated.Value(40)).current;
   const button2Scale = useRef(new Animated.Value(0.9)).current;
 
+  const button3Opacity = useRef(new Animated.Value(0)).current;
+  const button3Slide = useRef(new Animated.Value(40)).current;
+  const button3Scale = useRef(new Animated.Value(0.9)).current;
+
   // Footer animation
   const footerOpacity = useRef(new Animated.Value(0)).current;
 
@@ -334,6 +338,27 @@ export default function WelcomeScreen() {
       ]).start();
     }, staggerDelay * 5);
 
+    // Phase 7: Third button (840ms)
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(button3Opacity, {
+          toValue: 1,
+          duration: 120,
+          useNativeDriver: USE_NATIVE_DRIVER,
+        }),
+        Animated.spring(button3Slide, {
+          toValue: 0,
+          ...PREMIUM_SPRING.stiff,
+          useNativeDriver: USE_NATIVE_DRIVER,
+        }),
+        Animated.spring(button3Scale, {
+          toValue: 1,
+          ...PREMIUM_SPRING.stiff,
+          useNativeDriver: USE_NATIVE_DRIVER,
+        }),
+      ]).start();
+    }, staggerDelay * 6);
+
     // Phase 7: Footer (840ms, completes ~1000ms)
     setTimeout(() => {
       Animated.timing(footerOpacity, {
@@ -341,7 +366,7 @@ export default function WelcomeScreen() {
         duration: 150,
         useNativeDriver: USE_NATIVE_DRIVER,
       }).start();
-    }, staggerDelay * 6);
+    }, staggerDelay * 7);
   }, []);
 
   const logoSpin = logoRotate.interpolate({
@@ -944,7 +969,11 @@ export default function WelcomeScreen() {
 
           <Animated.View
             style={{
-              opacity: button2Opacity,
+              opacity: button3Opacity,
+              transform: [
+                { translateY: button3Slide },
+                { scale: button3Scale },
+              ],
               marginTop: 12,
             }}
           >

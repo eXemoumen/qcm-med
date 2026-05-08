@@ -35,12 +35,6 @@ import {
   getSortedChildren,
   FolderNode,
 } from "@/lib/groupSavedQuestions";
-import {
-  getQuestionResults,
-  getFilterCounts,
-  AnswerFilter,
-  QuestionResult,
-} from "@/lib/answerHistory";
 
 // Use native driver only on native platforms, not on web
 const USE_NATIVE_DRIVER = Platform.OS !== "web";
@@ -76,107 +70,6 @@ function ChevronRightIcon({ size = 16, color = "#9ca3af" }: { size?: number; col
 }
 
 // ============================================================================
-// Answer Filter Bar
-// ============================================================================
-
-interface AnswerFilterBarProps {
-  activeFilter: AnswerFilter;
-  onFilterChange: (filter: AnswerFilter) => void;
-  counts: Record<AnswerFilter, number>;
-  colors: any;
-  isDark: boolean;
-}
-
-const FILTER_CONFIG: {
-  key: AnswerFilter;
-  label: string;
-  emoji: string;
-  activeColor: string;
-}[] = [
-  { key: "all", label: "Tout", emoji: "📋", activeColor: "#09B2AC" },
-  { key: "correct", label: "Correct", emoji: "✅", activeColor: "#27AE60" },
-  { key: "wrong", label: "Faux", emoji: "❌", activeColor: "#E74C3C" },
-  { key: "unanswered", label: "Non répondu", emoji: "⏳", activeColor: "#95A5A6" },
-];
-
-function AnswerFilterBar({
-  activeFilter,
-  onFilterChange,
-  counts,
-  colors,
-  isDark,
-}: AnswerFilterBarProps) {
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{ marginBottom: 16 }}
-      contentContainerStyle={{ gap: 8, paddingRight: 4 }}
-    >
-      {FILTER_CONFIG.map((filter) => {
-        const isActive = activeFilter === filter.key;
-        const count = counts[filter.key];
-        return (
-          <TouchableOpacity
-            key={filter.key}
-            onPress={() => onFilterChange(filter.key)}
-            activeOpacity={0.7}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              borderRadius: 12,
-              borderWidth: 1.5,
-              backgroundColor: isActive
-                ? filter.activeColor + (isDark ? "25" : "15")
-                : colors.card,
-              borderColor: isActive ? filter.activeColor : colors.border,
-              gap: 6,
-            }}
-          >
-            <Text style={{ fontSize: 14 }}>{filter.emoji}</Text>
-            <Text
-              style={{
-                fontSize: 13,
-                fontWeight: isActive ? "700" : "500",
-                color: isActive ? filter.activeColor : colors.textSecondary,
-              }}
-            >
-              {filter.label}
-            </Text>
-            <View
-              style={{
-                backgroundColor: isActive
-                  ? filter.activeColor + (isDark ? "40" : "25")
-                  : isDark
-                    ? "rgba(255,255,255,0.08)"
-                    : "rgba(0,0,0,0.06)",
-                paddingHorizontal: 7,
-                paddingVertical: 2,
-                borderRadius: 8,
-                minWidth: 24,
-                alignItems: "center",
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 11,
-                  fontWeight: "700",
-                  color: isActive ? filter.activeColor : colors.textSecondary,
-                }}
-              >
-                {count}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
-  );
-}
-
-// ============================================================================
 // Main Screen
 // ============================================================================
 
@@ -194,42 +87,14 @@ export default function SavedQuestionsScreen() {
   // Navigation path — e.g. ["Anatomie", "Ostéologie", "2024 EMD1"]
   const [path, setPath] = useState<string[]>([]);
 
-  // Answer history filter
-  const [activeFilter, setActiveFilter] = useState<AnswerFilter>("all");
-  const [answerHistory, setAnswerHistory] = useState<Record<string, QuestionResult>>({});
-
   // Track last load time to prevent rapid reloads
   const lastLoadTime = useRef<number>(0);
   const LOAD_COOLDOWN = 5000;
 
-  // Filter questions based on answer history
-  const filteredQuestions = useMemo(() => {
-    if (activeFilter === "all") return questions;
-    return questions.filter((q) => {
-      const result = answerHistory[q.id];
-      switch (activeFilter) {
-        case "correct":
-          return result?.isCorrect === true;
-        case "wrong":
-          return result?.isCorrect === false;
-        case "unanswered":
-          return !result;
-        default:
-          return true;
-      }
-    });
-  }, [questions, activeFilter, answerHistory]);
-
-  // Filter counts for the badge UI
-  const filterCounts = useMemo(() => {
-    const ids = questions.map((q) => q.id);
-    return getFilterCounts(ids, answerHistory);
-  }, [questions, answerHistory]);
-
-  // Build folder tree from FILTERED questions
+  // Build folder tree from questions
   const folderTree = useMemo(
-    () => groupSavedQuestions(filteredQuestions),
-    [filteredQuestions],
+    () => groupSavedQuestions(questions),
+    [questions],
   );
 
   // Current folder based on navigation path
@@ -272,13 +137,6 @@ export default function SavedQuestionsScreen() {
         const { questions: data } = await getSavedQuestions(user.id);
         setQuestions(data);
         setHasLoaded(true);
-
-        // Load answer history for all fetched questions
-        const ids = data.map((q) => q.id);
-        if (ids.length > 0) {
-          const history = await getQuestionResults(ids);
-          setAnswerHistory(history);
-        }
       } catch (error) {
         if (__DEV__) {
           console.error("Error loading saved questions:", error);
@@ -417,23 +275,6 @@ export default function SavedQuestionsScreen() {
           }
         >
           <View style={{ paddingHorizontal: 20, paddingVertical: 16 }}>
-            {/* Global Answer Filter */}
-            {questions.length > 0 && path.length === 0 && (
-              <FadeInView animation="slideUp" delay={0}>
-                <AnswerFilterBar
-                  activeFilter={activeFilter}
-                  onFilterChange={(f) => {
-                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                    setActiveFilter(f);
-                    setPath([]);
-                  }}
-                  counts={filterCounts}
-                  colors={colors}
-                  isDark={isDark}
-                />
-              </FadeInView>
-            )}
-
             {/* Breadcrumb Navigation */}
             {path.length > 0 && (
               <FadeInView animation="slideUp" delay={0}>
@@ -484,58 +325,6 @@ export default function SavedQuestionsScreen() {
                   </Text>
                 </View>
               </FadeInView>
-            ) : filteredQuestions.length === 0 && activeFilter !== "all" ? (
-              /* Filter Empty State */
-              <FadeInView animation="scale" delay={100}>
-                <View
-                  style={{
-                    backgroundColor: colors.card,
-                    borderRadius: 16,
-                    padding: 32,
-                    alignItems: "center",
-                    marginTop: 8,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    ...shadowPresets.md(isDark),
-                  }}
-                >
-                  <Text style={{ fontSize: 40, marginBottom: 12 }}>
-                    {activeFilter === "correct"
-                      ? "🎯"
-                      : activeFilter === "wrong"
-                        ? "💡"
-                        : "📝"}
-                  </Text>
-                  <Text
-                    style={{
-                      fontSize: 17,
-                      fontWeight: "600",
-                      color: colors.text,
-                      marginBottom: 6,
-                    }}
-                  >
-                    {activeFilter === "correct"
-                      ? "Aucune bonne réponse"
-                      : activeFilter === "wrong"
-                        ? "Aucune mauvaise réponse"
-                        : "Toutes les questions ont été répondues"}
-                  </Text>
-                  <Text
-                    style={{
-                      color: colors.textMuted,
-                      textAlign: "center",
-                      lineHeight: 20,
-                      fontSize: 14,
-                    }}
-                  >
-                    {activeFilter === "correct"
-                      ? "Continuez à pratiquer pour obtenir vos premières bonnes réponses !"
-                      : activeFilter === "wrong"
-                        ? "Bravo ! Vous n'avez aucune mauvaise réponse enregistrée."
-                        : "Pratiquez les questions pour voir vos résultats ici."}
-                  </Text>
-                </View>
-              </FadeInView>
             ) : isLeafLevel && currentFolder ? (
               /* Leaf Level — Show Questions */
               <>
@@ -564,7 +353,6 @@ export default function SavedQuestionsScreen() {
                         isExpanded={expandedId === question.id}
                         onToggle={() => toggleExpand(question.id)}
                         onUnsave={() => handleUnsave(question.id)}
-                        answerResult={answerHistory[question.id] || null}
                         colors={colors}
                         isDark={isDark}
                       />
@@ -891,7 +679,6 @@ function SavedQuestionCard({
   isExpanded,
   onToggle,
   onUnsave,
-  answerResult,
   colors,
   isDark,
 }: {
@@ -899,7 +686,6 @@ function SavedQuestionCard({
   isExpanded: boolean;
   onToggle: () => void;
   onUnsave: () => void;
-  answerResult: QuestionResult | null;
   colors: any;
   isDark: boolean;
 }) {
@@ -995,24 +781,6 @@ function SavedQuestionCard({
                 Q{question.number}
               </Text>
             </View>
-            {/* Answer status badge */}
-            {answerResult && (
-              <View
-                style={{
-                  backgroundColor: answerResult.isCorrect
-                    ? (isDark ? "rgba(39,174,96,0.2)" : "rgba(39,174,96,0.12)")
-                    : (isDark ? "rgba(231,76,60,0.2)" : "rgba(231,76,60,0.12)"),
-                  paddingHorizontal: 6,
-                  paddingVertical: 3,
-                  borderRadius: 6,
-                  marginRight: 8,
-                }}
-              >
-                <Text style={{ fontSize: 10, fontWeight: "700", color: answerResult.isCorrect ? "#27AE60" : "#E74C3C" }}>
-                  {answerResult.isCorrect ? "✓" : "✗"}
-                </Text>
-              </View>
-            )}
             <View
               style={{
                 backgroundColor: colors.backgroundSecondary,
@@ -1181,6 +949,42 @@ function SavedQuestionCard({
               </FadeInView>
             ))}
           </View>
+
+          {/* Explanation */}
+          {question.explanation && (
+            <FadeInView animation="slideUp" delay={question.answers.length * 50}>
+              <View
+                style={{
+                  marginTop: 16,
+                  padding: 16,
+                  backgroundColor: colors.primaryMuted,
+                  borderRadius: 12,
+                  borderLeftWidth: 4,
+                  borderLeftColor: colors.primary,
+                }}
+              >
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontWeight: "600",
+                    fontSize: 13,
+                    marginBottom: 6,
+                  }}
+                >
+                  Explication
+                </Text>
+                <SecureTextElement
+                  style={{
+                    color: colors.text,
+                    fontSize: 14,
+                    lineHeight: 22,
+                  }}
+                >
+                  {question.explanation}
+                </SecureTextElement>
+              </View>
+            </FadeInView>
+          )}
         </View>
       )}
     </Animated.View>

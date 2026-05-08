@@ -50,6 +50,9 @@ export default function OutilsScreen() {
           <View style={{ marginBottom: 32 }}>
             <Pressable
               onPress={handleBack}
+              accessibilityRole="button"
+              accessibilityLabel="Retourner à la page précédente"
+              accessibilityHint="Navigue vers la page précédente"
               style={{
                 flexDirection: "row",
                 alignItems: "center",
@@ -96,7 +99,12 @@ export default function OutilsScreen() {
 
           {/* Cards Grid */}
           <View style={{ gap: 16 }}>
-            <Pressable onPress={() => router.push("/moyen-calc" as any)}>
+            <Pressable 
+              onPress={() => router.push("/moyen-calc" as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Ouvrir le calculateur de moyenne"
+              accessibilityHint="Ouvre l'outil Moyen Calc pour calculer votre moyenne"
+            >
               <View
                 style={{
                   backgroundColor: colors.card,
