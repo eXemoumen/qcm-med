@@ -6,8 +6,7 @@ import { useRef, useEffect } from 'react'
 import { Tabs } from 'expo-router'
 import { View, useWindowDimensions, Animated, Pressable, Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { HomeIcon, ResourcesIcon, ProfileIcon } from '@/components/icons'
-import { Calculator } from 'lucide-react-native'
+import { HomeIcon, ResourcesIcon, ProfileIcon, CalculatorIcon } from '@/components/icons'
 
 // Use native driver only on native platforms, not on web
 const USE_NATIVE_DRIVER = Platform.OS !== 'web'
@@ -92,10 +91,10 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="outils"
         options={{
-          title: 'OT',
+          title: 'Outils',
           tabBarIcon: ({ color, focused }) => (
             <AnimatedTabIcon focused={focused}>
-              <Calculator size={22} color={color} />
+              <CalculatorIcon size={22} color={color} />
             </AnimatedTabIcon>
           ),
         }}

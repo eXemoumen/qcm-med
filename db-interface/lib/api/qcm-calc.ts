@@ -186,6 +186,18 @@ export async function updateQcmExam(id: string, formData: QcmExamFormData) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Non authentifié');
 
+    // Verify ownership
+    const { data: existingExam, error: fetchError } = await supabase
+      .from('qcm_exams')
+      .select('created_by')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw new Error('Examen introuvable');
+    if (existingExam.created_by !== session.user.id) {
+      throw new Error('Non autorisé à modifier cet examen');
+    }
+
     const { data, error } = await supabase
       .from('qcm_exams')
       .update({
@@ -232,6 +244,18 @@ export async function deleteQcmExam(id: string) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Non authentifié');
+
+    // Verify ownership
+    const { data: existingExam, error: fetchError } = await supabase
+      .from('qcm_exams')
+      .select('created_by')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw new Error('Examen introuvable');
+    if (existingExam.created_by !== session.user.id) {
+      throw new Error('Non autorisé à supprimer cet examen');
+    }
 
     const { error } = await supabase
       .from('qcm_exams')

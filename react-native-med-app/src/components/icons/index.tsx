@@ -139,6 +139,8 @@ export function ChevronLeftIcon({ size = 24, color = '#1E1E1E', strokeWidth = 2.
   );
 }
 
+import { Calculator } from 'lucide-react-native';
+
 // Export all icons
 export const Icons = {
   Home: HomeIcon,
@@ -150,6 +152,9 @@ export const Icons = {
   Goal: GoalIcon,
   File: FileIcon,
   ChevronLeft: ChevronLeftIcon,
+  Calculator: Calculator,
 };
+
+export { Calculator as CalculatorIcon };
 
 export default Icons;
