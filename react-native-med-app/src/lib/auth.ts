@@ -94,6 +94,9 @@ export async function performGlobalResetOnce(): Promise<void> {
     }
 
     // 1. Force logout from Supabase
+    // FLAG as intentional so the SIGNED_OUT handler in AuthContext
+    // doesn't try to recover the session and race with init().
+    _isIntentionalSignOut = true
     await supabase.auth.signOut()
 
     // 2. Clear old Device ID (forces new secure format generation)
@@ -367,36 +370,26 @@ export async function signIn(email: string, password: string): Promise<{ user: U
     let authError: any = null
 
     try {
-      // Wrap in timeout and retry loop to prevent infinite hangs on iOS when network stack
-      // is suspended (backgrounding, screen lock) or dropped by iCloud Private Relay
-      let retries = 1;
-      while (retries >= 0) {
-        try {
-          const result = await withTimeout(
-            supabase.auth.signInWithPassword({
-              email,
-              password,
-            }),
-            10000, // 10s auth timeout — server processes in ~100ms but iOS cellular
-                   // needs 3-8s for DNS + TLS + CORS preflight round-trip
-            TIMEOUT_ERROR_MESSAGE
-          )
-          authData = result.data
-          authError = result.error
-          break; // Break out of retry loop on success or explicit backend error
-        } catch (innerError: any) {
-          const innerMsg = innerError?.message || '';
-          const isTimeout = innerMsg === TIMEOUT_ERROR_MESSAGE;
-          const isNetworkDrop = innerMsg.toLowerCase().includes('fetch') || innerMsg.toLowerCase().includes('network');
-
-          if ((isTimeout || isNetworkDrop) && retries > 0) {
-            retries--;
-            if (__DEV__) console.warn(`[Auth] signInWithPassword error (${innerMsg}), forcing retry... (${retries} left)`);
-            continue; // Retry
-          }
-          throw innerError; // Throw to the outer catch for fallback recovery
-        }
-      }
+      // Single attempt with timeout — NO RETRY LOOP.
+      // Previously a retry loop created two concurrent signInWithPassword
+      // promises fighting for the SDK's internal lock, causing hangs on
+      // native devices where the second call blocks behind the first's
+      // session persistence (AsyncStorage write).
+      // If the attempt times out, the post-timeout recovery path below
+      // checks if the server-side session was created anyway.
+      const result = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email,
+          password,
+        }),
+        12000, // 12s auth timeout — server processes in ~100ms but iOS cellular
+               // needs 3-8s for DNS + TLS + CORS preflight round-trip.
+               // Increased from 10s to give slow 3G more headroom since we
+               // no longer retry (which previously masked the tight timeout).
+        TIMEOUT_ERROR_MESSAGE
+      )
+      authData = result.data
+      authError = result.error
     } catch (e: any) {
       if (__DEV__) console.error('[Auth] signInWithPassword threw:', e)
       const errorMessage = e?.message || ''
@@ -492,9 +485,11 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       return { data: null, error: { message: err?.message || 'Profile fetch failed', code: 'FETCH_ERROR' } }
     }) as Promise<{ data: any; error: any }>
 
-    // Set up device check promise
+    // Set up device check promise — uses direct PostgREST fetch (not SDK client)
+    // to bypass the SDK's internal lock, which may still be held by
+    // signInWithPassword's session persistence (AsyncStorage write).
     const devicePromise = withTimeout(
-      checkDeviceLimit(authData.user.id),
+      checkDeviceLimit(authData.user.id, accessToken),
       8000,
       'Device check timeout'
     ).catch(e => {
@@ -572,10 +567,11 @@ export async function signIn(email: string, password: string): Promise<{ user: U
       }
 
       // Step 4: Register device (fire-and-forget, non-blocking).
+      // Uses direct PostgREST fetch to bypass SDK lock contention.
       // AuthContext gives registration a grace period on web before
       // verifySessionExists() can enforce remote logout.
       if (__DEV__) console.log('[Auth] Registering device (background)...')
-      registerDevice(authData.user.id).catch((e) => {
+      registerDevice(authData.user.id, accessToken).catch((e) => {
         if (__DEV__) console.warn('[Auth] Device registration failed (non-critical):', e)
       })
     }
@@ -920,7 +916,13 @@ export async function getUserActivationCode(userId: string): Promise<{ code: str
 // Device Management
 // ============================================================================
 
-export async function registerDevice(userId: string): Promise<{ error: string | null }> {
+/**
+ * Register device session using direct PostgREST fetch.
+ * @param accessToken - When provided, uses direct fetch to bypass SDK lock.
+ *                      Falls back to SDK client when token is not available
+ *                      (e.g. called from non-login paths like app resume).
+ */
+export async function registerDevice(userId: string, accessToken?: string | null): Promise<{ error: string | null }> {
   try {
     const deviceId = await getDeviceId()
     const deviceName = await getDeviceName()
@@ -932,33 +934,81 @@ export async function registerDevice(userId: string): Promise<{ error: string | 
       const thirtyDaysAgo = new Date()
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
       
-      await supabase
-        .from('device_sessions')
-        .delete()
-        .eq('user_id', userId)
-        .eq('fingerprint', fingerprint)
-        .neq('device_id', deviceId)
-        .lt('last_active_at', thirtyDaysAgo.toISOString())
+      if (accessToken) {
+        // Direct PostgREST DELETE — bypass SDK lock
+        await fetch(
+          `${supabaseUrl}/rest/v1/device_sessions?user_id=eq.${userId}&fingerprint=eq.${encodeURIComponent(fingerprint)}&device_id=neq.${encodeURIComponent(deviceId)}&last_active_at=lt.${encodeURIComponent(thirtyDaysAgo.toISOString())}`,
+          {
+            method: 'DELETE',
+            headers: {
+              'apikey': supabaseAnonKey,
+              'Authorization': `Bearer ${accessToken}`,
+              'Accept': 'application/json',
+            },
+          }
+        ).catch(() => {}) // Non-critical cleanup, swallow errors
+      } else {
+        // Fallback: SDK client (used when called outside login flow)
+        await supabase
+          .from('device_sessions')
+          .delete()
+          .eq('user_id', userId)
+          .eq('fingerprint', fingerprint)
+          .neq('device_id', deviceId)
+          .lt('last_active_at', thirtyDaysAgo.toISOString())
+      }
     }
 
-    const { error } = await supabase
-      .from('device_sessions')
-      .upsert({
-        user_id: userId,
-        device_id: deviceId,
-        fingerprint: fingerprint,
-        device_name: deviceName,
-        last_active_at: new Date().toISOString(),
-      }, {
-        onConflict: 'user_id,device_id',
-      })
-
-
-    if (error) {
-      if (__DEV__) {
-        console.error('[Auth] Error registering device:', error.message)
+    // Upsert the device session
+    if (accessToken) {
+      // Direct PostgREST upsert — bypass SDK lock
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/device_sessions`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': supabaseAnonKey,
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Prefer': 'resolution=merge-duplicates',
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            device_id: deviceId,
+            fingerprint: fingerprint,
+            device_name: deviceName,
+            last_active_at: new Date().toISOString(),
+          }),
+        }
+      )
+      if (!response.ok) {
+        const text = await response.text()
+        if (__DEV__) {
+          console.error('[Auth] Error registering device (direct):', text)
+        }
+        return { error: `Device registration failed: ${response.status}` }
       }
-      return { error: error.message }
+    } else {
+      // Fallback: SDK client
+      const { error } = await supabase
+        .from('device_sessions')
+        .upsert({
+          user_id: userId,
+          device_id: deviceId,
+          fingerprint: fingerprint,
+          device_name: deviceName,
+          last_active_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id,device_id',
+        })
+
+      if (error) {
+        if (__DEV__) {
+          console.error('[Auth] Error registering device:', error.message)
+        }
+        return { error: error.message }
+      }
     }
 
     return { error: null }
@@ -970,8 +1020,34 @@ export async function registerDevice(userId: string): Promise<{ error: string | 
   }
 }
 
-export async function getDeviceSessions(userId: string): Promise<{ sessions: DeviceSession[]; error: string | null }> {
+/**
+ * Fetch device sessions. Uses direct PostgREST fetch when accessToken is provided
+ * (during login) to bypass SDK lock contention. Falls back to SDK client otherwise.
+ */
+export async function getDeviceSessions(userId: string, accessToken?: string | null): Promise<{ sessions: DeviceSession[]; error: string | null }> {
   try {
+    if (accessToken) {
+      // Direct PostgREST fetch — bypass SDK lock
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/device_sessions?user_id=eq.${userId}&select=*&order=last_active_at.desc`,
+        {
+          headers: {
+            'apikey': supabaseAnonKey,
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept': 'application/json',
+            'Accept-Profile': 'public',
+          },
+        }
+      )
+      if (!response.ok) {
+        const text = await response.text()
+        return { sessions: [], error: `Device sessions fetch failed: ${response.status} ${text}` }
+      }
+      const data = await response.json()
+      return { sessions: data || [], error: null }
+    }
+
+    // Fallback: SDK client (used outside login flow, e.g. settings page)
     const { data, error } = await supabase
       .from('device_sessions')
       .select('*')
@@ -1092,9 +1168,13 @@ export async function getUniqueDevices(userId: string): Promise<{
  * Returns canLogin: true if user can login, false if device limit reached
  * Returns isLimitReached: true only when the actual device limit is exceeded (not for transient errors)
  */
-export async function checkDeviceLimit(userId: string): Promise<{ canLogin: boolean; error: string | null; isLimitReached: boolean }> {
+/**
+ * Check if user has reached device limit (2 devices).
+ * @param accessToken - When provided, uses direct PostgREST fetch to bypass SDK lock.
+ */
+export async function checkDeviceLimit(userId: string, accessToken?: string | null): Promise<{ canLogin: boolean; error: string | null; isLimitReached: boolean }> {
   try {
-    const { sessions, error } = await getDeviceSessions(userId)
+    const { sessions, error } = await getDeviceSessions(userId, accessToken)
     if (error) return { canLogin: false, error, isLimitReached: false }
 
     const currentDeviceId = await getDeviceId()

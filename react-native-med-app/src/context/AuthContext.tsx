@@ -108,6 +108,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Guard visibility handler against running during sign in
   const isSigningIn = useRef(false);
 
+  // ============================================================================
+  // Refs that mirror state — read by onAuthStateChange to avoid stale closures.
+  // The listener is created once (useEffect with []) so it captures the
+  // initial values of isLoading and user forever. These refs are kept in
+  // sync via the useEffects below and give the listener current values.
+  // ============================================================================
+  const isLoadingRef = useRef(isLoading);
+  const userRef = useRef(user);
+  // Flag to prevent INITIAL_SESSION from double-running with checkSession()
+  const initialSessionHandled = useRef(false);
+
+  // Keep refs in sync with state
+  useEffect(() => { isLoadingRef.current = isLoading; }, [isLoading]);
+  useEffect(() => { userRef.current = user; }, [user]);
+
   // Check for existing session on mount
   useEffect(() => {
     let isMounted = true;
@@ -141,6 +156,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     init();
 
+    // Mark that checkSession will handle the initial load
+    initialSessionHandled.current = true;
+
     // Listen for auth state changes
     const {
       data: { subscription },
@@ -148,8 +166,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!isMounted) return;
 
       if (event === "SIGNED_IN" && session) {
-        // Don't refresh if we're already loading (prevents double fetch on init)
-        if (!isLoading) {
+        // Use REF (not closure state) to get current loading status.
+        // The closure captures the initial isLoading=true and never changes.
+        if (!isLoadingRef.current) {
           await refreshUser();
         }
       } else if (event === "SIGNED_OUT") {
@@ -236,8 +255,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Don't set user here, let the callback page handle the redirect
         setIsLoading(false);
       } else if (event === "INITIAL_SESSION") {
-        // This is fired when Supabase loads the initial session from storage
-        if (session && !user) {
+        // This is fired when Supabase loads the initial session from storage.
+        // If checkSession() in init() already handled this, skip to avoid
+        // a redundant getCurrentUser() call.
+        if (initialSessionHandled.current) {
+          if (__DEV__) {
+            console.log(
+              "[Auth] INITIAL_SESSION: skipping — already handled by checkSession()",
+            );
+          }
+          return;
+        }
+        if (session && !userRef.current) {
           await refreshUser();
         } else if (!session) {
           // No session from Supabase
