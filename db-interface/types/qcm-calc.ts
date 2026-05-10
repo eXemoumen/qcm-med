@@ -3,7 +3,7 @@
 // ============================================================================
 
 export type TestType = 'QCSs' | 'allOrNothing' | 'partiallyPositive' | 'partiallyNegative';
-export type ExamSession = 'Normal' | 'Rattrapage';
+export type ExamSession = 'EMD' | 'Rattrapage';
 export type ExamKind = 'Théorique' | 'Clinique';
 export type SectionType = 'théorique' | 'clinique';
 
@@ -90,7 +90,7 @@ export const TEST_TYPE_OPTIONS: { value: TestType; label: string }[] = [
 ];
 
 export const SESSION_OPTIONS: { value: ExamSession; label: string }[] = [
-  { value: 'Normal', label: 'Normal' },
+  { value: 'EMD', label: 'EMD' },
   { value: 'Rattrapage', label: 'Rattrapage' },
 ];
 

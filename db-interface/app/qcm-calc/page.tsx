@@ -44,7 +44,7 @@ const INITIAL_FORM: QcmExamFormData = {
   num_questions: 20,
   test_type: 'QCSs',
   correct_answers: {},
-  session: 'Normal',
+  session: 'EMD',
   rotation: '',
   exam_type: 'Théorique',
   sections: [],
