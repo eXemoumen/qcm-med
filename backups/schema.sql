@@ -1913,6 +1913,38 @@ CREATE OR REPLACE VIEW "public"."online_payment_stats" WITH ("security_invoker"=
 ALTER VIEW "public"."online_payment_stats" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."qcm_exams" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "name" "text" NOT NULL,
+    "description" "text" DEFAULT ''::"text" NOT NULL,
+    "speciality" "text" DEFAULT 'Médecine'::"text" NOT NULL,
+    "grade" "text" NOT NULL,
+    "year" "text" NOT NULL,
+    "subject" "text" NOT NULL,
+    "num_questions" integer NOT NULL,
+    "test_type" "text" NOT NULL,
+    "correct_answers" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    "session" "text" DEFAULT 'Normal'::"text" NOT NULL,
+    "rotation" "text",
+    "exam_type" "text" DEFAULT 'Théorique'::"text" NOT NULL,
+    "created_by" "uuid",
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "sections" "jsonb" DEFAULT '[]'::"jsonb",
+    CONSTRAINT "qcm_exams_exam_type_check" CHECK (("exam_type" = ANY (ARRAY['Théorique'::"text", 'Clinique'::"text"]))),
+    CONSTRAINT "qcm_exams_num_questions_check" CHECK ((("num_questions" > 0) AND ("num_questions" <= 200))),
+    CONSTRAINT "qcm_exams_session_check" CHECK (("session" = ANY (ARRAY['Normal'::"text", 'Rattrapage'::"text"]))),
+    CONSTRAINT "qcm_exams_test_type_check" CHECK (("test_type" = ANY (ARRAY['QCSs'::"text", 'allOrNothing'::"text", 'partiallyPositive'::"text", 'partiallyNegative'::"text"])))
+);
+
+
+ALTER TABLE "public"."qcm_exams" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."qcm_exams"."sections" IS 'Array of {type, from, to} objects defining théorique/clinique question ranges within a single exam';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."question_reports" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "question_id" "uuid" NOT NULL,
@@ -2197,6 +2229,11 @@ ALTER TABLE ONLY "public"."online_payments"
 
 
 
+ALTER TABLE ONLY "public"."qcm_exams"
+    ADD CONSTRAINT "qcm_exams_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."question_reports"
     ADD CONSTRAINT "question_reports_pkey" PRIMARY KEY ("id");
 
@@ -2456,6 +2493,22 @@ CREATE INDEX "idx_online_payments_status" ON "public"."online_payments" USING "b
 
 
 CREATE INDEX "idx_online_payments_user_id" ON "public"."online_payments" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_qcm_exams_grade" ON "public"."qcm_exams" USING "btree" ("grade");
+
+
+
+CREATE INDEX "idx_qcm_exams_speciality" ON "public"."qcm_exams" USING "btree" ("speciality");
+
+
+
+CREATE INDEX "idx_qcm_exams_subject" ON "public"."qcm_exams" USING "btree" ("subject");
+
+
+
+CREATE INDEX "idx_qcm_exams_year" ON "public"."qcm_exams" USING "btree" ("year");
 
 
 
@@ -2837,6 +2890,11 @@ ALTER TABLE ONLY "public"."online_payments"
 
 ALTER TABLE ONLY "public"."online_payments"
     ADD CONSTRAINT "online_payments_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."qcm_exams"
+    ADD CONSTRAINT "qcm_exams_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE SET NULL;
 
 
 
@@ -3272,6 +3330,12 @@ CREATE POLICY "View test attempts" ON "public"."test_attempts" FOR SELECT TO "au
 ALTER TABLE "public"."activation_keys" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "admin_manage_qcm_exams" ON "public"."qcm_exams" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['admin'::"public"."user_role", 'owner'::"public"."user_role", 'manager'::"public"."user_role"]))))));
+
+
+
 ALTER TABLE "public"."admin_payments" ENABLE ROW LEVEL SECURITY;
 
 
@@ -3315,6 +3379,13 @@ ALTER TABLE "public"."modules" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."online_payments" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "public_read_qcm_exams" ON "public"."qcm_exams" FOR SELECT USING (true);
+
+
+
+ALTER TABLE "public"."qcm_exams" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."question_reports" ENABLE ROW LEVEL SECURITY;
@@ -4280,6 +4351,12 @@ GRANT ALL ON TABLE "public"."online_payments" TO "service_role";
 GRANT ALL ON TABLE "public"."online_payment_stats" TO "anon";
 GRANT ALL ON TABLE "public"."online_payment_stats" TO "authenticated";
 GRANT ALL ON TABLE "public"."online_payment_stats" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."qcm_exams" TO "anon";
+GRANT ALL ON TABLE "public"."qcm_exams" TO "authenticated";
+GRANT ALL ON TABLE "public"."qcm_exams" TO "service_role";
 
 
 
