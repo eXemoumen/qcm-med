@@ -240,10 +240,10 @@ export const SECTION_TYPE_LABELS: Record<SectionType, string> = {
 
 /** Test type display labels (French) */
 export const TEST_TYPE_LABELS: Record<TestType, string> = {
-  QCSs: 'QCS (Question à Choix Simple)',
-  allOrNothing: 'Tout ou Rien',
-  partiallyPositive: 'Partiellement Positive',
-  partiallyNegative: 'Partiellement Négative',
+  QCSs: 'QCS — Un seul choix',
+  allOrNothing: 'QCM — Multiple choix possible (Tout ou Rien)',
+  partiallyPositive: 'QCM — Multiple choix possible (Partiellement Positive)',
+  partiallyNegative: 'QCM — Multiple choix possible (Partiellement Négative)',
 };
 
 /** Test type explanations for students */

@@ -77,7 +77,9 @@ CREATE POLICY "Users can view own profile"
   ON public.users FOR SELECT
   USING (auth.uid() = id);
 
--- Users can update their own profile (except role and subscription)
+-- Users can update their own profile (LOCKS sensitive fields)
+-- SECURITY FIX (May 2026): Added is_reviewer, is_test, subscription_expires_at
+-- to WITH CHECK to prevent privilege escalation attacks.
 CREATE POLICY "Users can update own profile"
   ON public.users FOR UPDATE
   USING (auth.uid() = id)
@@ -85,6 +87,9 @@ CREATE POLICY "Users can update own profile"
     auth.uid() = id
     AND role = (SELECT role FROM public.users WHERE id = auth.uid())
     AND is_paid = (SELECT is_paid FROM public.users WHERE id = auth.uid())
+    AND is_reviewer = (SELECT is_reviewer FROM public.users WHERE id = auth.uid())
+    AND is_test = (SELECT is_test FROM public.users WHERE id = auth.uid())
+    AND subscription_expires_at IS NOT DISTINCT FROM (SELECT subscription_expires_at FROM public.users WHERE id = auth.uid())
   );
 
 -- Admins can view all users
@@ -96,6 +101,39 @@ CREATE POLICY "Admins can view all users"
 CREATE POLICY "Admins can update users"
   ON public.users FOR UPDATE
   USING (is_admin_or_higher());
+
+-- Defense-in-depth: Trigger to block role escalation even if RLS is bypassed
+CREATE OR REPLACE FUNCTION prevent_role_escalation()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF auth.uid() IS NOT NULL THEN
+    IF NEW.id = auth.uid() THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.users WHERE id = auth.uid() AND role IN ('owner', 'admin')
+      ) THEN
+        IF NEW.role IS DISTINCT FROM OLD.role THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own role';
+        END IF;
+        IF NEW.is_paid IS DISTINCT FROM OLD.is_paid THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own payment status';
+        END IF;
+        IF NEW.is_reviewer IS DISTINCT FROM OLD.is_reviewer THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own reviewer status';
+        END IF;
+        IF NEW.subscription_expires_at IS DISTINCT FROM OLD.subscription_expires_at THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own subscription';
+        END IF;
+      END IF;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = 'public';
+
+CREATE TRIGGER trg_prevent_role_escalation
+  BEFORE UPDATE ON public.users
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_role_escalation();
 
 -- Owner can insert new users (for admin creation)
 CREATE POLICY "Owner can create users"

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -63,6 +64,10 @@ export default function QcmCalcScreen() {
   const isDesktop = width >= 900;
   const contentMaxWidth = 1100;
 
+  // Refs for auto-scroll
+  const scrollRef = useRef<ScrollView>(null);
+  const resultYOffset = useRef(0);
+
   // State
   const [exams, setExams] = useState<QcmExam[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +79,8 @@ export default function QcmCalcScreen() {
   // Filters
   const [filterSubject, setFilterSubject] = useState("");
   const [filterYear, setFilterYear] = useState("");
+  const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
+  const [showYearDropdown, setShowYearDropdown] = useState(false);
 
   // Load exams
   useEffect(() => {
@@ -111,13 +118,22 @@ export default function QcmCalcScreen() {
     });
   }, [exams, filterSubject, filterYear]);
 
-  // Toggle answer
+  // Toggle answer — single-choice (radio) for QCSs, multi-select for QCM types
   const toggleAnswer = (qNum: number, label: string) => {
     setUserAnswers((prev) => {
       const current = prev[qNum] || [];
-      const updated = current.includes(label)
-        ? current.filter((l) => l !== label)
-        : [...current, label];
+      let updated: string[];
+
+      if (selectedExam?.test_type === 'QCSs') {
+        // Radio behavior: selecting the same answer deselects it, otherwise replace
+        updated = current.includes(label) ? [] : [label];
+      } else {
+        // Checkbox behavior: toggle the answer in/out of the selection
+        updated = current.includes(label)
+          ? current.filter((l) => l !== label)
+          : [...current, label];
+      }
+
       return { ...prev, [qNum]: updated };
     });
     setShowResult(false);
@@ -180,18 +196,26 @@ export default function QcmCalcScreen() {
     <View style={{ gap: 20 }}>
       {/* Filters */}
       <View style={{ ...cardStyle, gap: 12 }}>
-        <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5 }}>
-          Filtres
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5 }}>
+            Filtres
+          </Text>
+          {(filterSubject || filterYear) && (
+            <Pressable onPress={() => { setFilterSubject(""); setFilterYear(""); }}>
+              <Text style={{ color: "#09b2ac", fontSize: 12, fontWeight: "700" }}>Réinitialiser</Text>
+            </Pressable>
+          )}
+        </View>
         <View style={{ flexDirection: isDesktop ? "row" : "column", gap: 10 }}>
-          {/* Subject Filter */}
+
+          {/* ── Subject Dropdown ── */}
           <Pressable
-            onPress={() => {
-              const next = subjects[(subjects.indexOf(filterSubject) + 1) % (subjects.length + 1)];
-              setFilterSubject(next || "");
-            }}
+            onPress={() => setShowSubjectDropdown(true)}
             style={{
               flex: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
               backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
               borderRadius: 12,
               paddingHorizontal: 14,
@@ -200,18 +224,20 @@ export default function QcmCalcScreen() {
               borderColor: filterSubject ? "#09b2ac" : colors.border,
             }}
           >
-            <Text style={{ color: filterSubject ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700" }}>
+            <Text style={{ color: filterSubject ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
               {filterSubject || "Toutes matières"}
             </Text>
+            <ChevronDown size={16} color={filterSubject ? "#09b2ac" : colors.textMuted} />
           </Pressable>
-          {/* Year Filter */}
+
+          {/* ── Year Dropdown ── */}
           <Pressable
-            onPress={() => {
-              const next = years[(years.indexOf(filterYear) + 1) % (years.length + 1)];
-              setFilterYear(next || "");
-            }}
+            onPress={() => setShowYearDropdown(true)}
             style={{
               flex: 1,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
               backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
               borderRadius: 12,
               paddingHorizontal: 14,
@@ -220,12 +246,129 @@ export default function QcmCalcScreen() {
               borderColor: filterYear ? "#09b2ac" : colors.border,
             }}
           >
-            <Text style={{ color: filterYear ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700" }}>
+            <Text style={{ color: filterYear ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
               {filterYear || "Toutes années"}
             </Text>
+            <ChevronDown size={16} color={filterYear ? "#09b2ac" : colors.textMuted} />
           </Pressable>
         </View>
       </View>
+
+      {/* ── Subject Dropdown Modal ── */}
+      <Modal transparent animationType="fade" visible={showSubjectDropdown} onRequestClose={() => setShowSubjectDropdown(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
+          onPress={() => setShowSubjectDropdown(false)}
+        >
+          <View style={{
+            backgroundColor: colors.card,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingTop: 12,
+            paddingBottom: 32,
+            maxHeight: "70%",
+          }}>
+            {/* Handle bar */}
+            <View style={{ width: 40, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
+            <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800", paddingHorizontal: 20, marginBottom: 12 }}>Matière</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* "All" option */}
+              <Pressable
+                onPress={() => { setFilterSubject(""); setShowSubjectDropdown(false); }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingHorizontal: 20,
+                  paddingVertical: 14,
+                  backgroundColor: !filterSubject ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
+                }}
+              >
+                <Text style={{ color: !filterSubject ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: !filterSubject ? "700" : "500" }}>
+                  Toutes matières
+                </Text>
+                {!filterSubject && <Check size={18} color="#09b2ac" />}
+              </Pressable>
+              {subjects.map((s) => (
+                <Pressable
+                  key={s}
+                  onPress={() => { setFilterSubject(s); setShowSubjectDropdown(false); }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingHorizontal: 20,
+                    paddingVertical: 14,
+                    backgroundColor: filterSubject === s ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
+                  }}
+                >
+                  <Text style={{ color: filterSubject === s ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: filterSubject === s ? "700" : "500" }}>
+                    {s}
+                  </Text>
+                  {filterSubject === s && <Check size={18} color="#09b2ac" />}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── Year Dropdown Modal ── */}
+      <Modal transparent animationType="fade" visible={showYearDropdown} onRequestClose={() => setShowYearDropdown(false)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
+          onPress={() => setShowYearDropdown(false)}
+        >
+          <View style={{
+            backgroundColor: colors.card,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            paddingTop: 12,
+            paddingBottom: 32,
+            maxHeight: "70%",
+          }}>
+            <View style={{ width: 40, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
+            <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800", paddingHorizontal: 20, marginBottom: 12 }}>Année</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Pressable
+                onPress={() => { setFilterYear(""); setShowYearDropdown(false); }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingHorizontal: 20,
+                  paddingVertical: 14,
+                  backgroundColor: !filterYear ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
+                }}
+              >
+                <Text style={{ color: !filterYear ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: !filterYear ? "700" : "500" }}>
+                  Toutes années
+                </Text>
+                {!filterYear && <Check size={18} color="#09b2ac" />}
+              </Pressable>
+              {years.map((y) => (
+                <Pressable
+                  key={y}
+                  onPress={() => { setFilterYear(y); setShowYearDropdown(false); }}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    paddingHorizontal: 20,
+                    paddingVertical: 14,
+                    backgroundColor: filterYear === y ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
+                  }}
+                >
+                  <Text style={{ color: filterYear === y ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: filterYear === y ? "700" : "500" }}>
+                    {y}
+                  </Text>
+                  {filterYear === y && <Check size={18} color="#09b2ac" />}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Exam cards */}
       {loading ? (
@@ -425,7 +568,13 @@ export default function QcmCalcScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => setShowResult(true)}
+            onPress={() => {
+              setShowResult(true);
+              // Small delay so the result View is rendered before we scroll
+              setTimeout(() => {
+                scrollRef.current?.scrollTo({ y: resultYOffset.current, animated: true });
+              }, 120);
+            }}
             style={{
               flex: 2,
               backgroundColor: "#09b2ac",
@@ -447,15 +596,18 @@ export default function QcmCalcScreen() {
 
         {/* Result */}
         {result && (
-          <View style={{
-            backgroundColor: isDark ? "rgba(9,178,172,0.1)" : "rgba(9,178,172,0.06)",
-            borderRadius: isDesktop ? 24 : 20,
-            borderWidth: 1,
-            borderColor: isDark ? "rgba(9,178,172,0.2)" : "rgba(9,178,172,0.15)",
-            padding: isDesktop ? 28 : 24,
-            alignItems: "center",
-            gap: 16,
-          }}>
+          <>
+          <View
+            onLayout={(e) => { resultYOffset.current = e.nativeEvent.layout.y + (isDesktop ? 40 : 28); }}
+            style={{
+              backgroundColor: isDark ? "rgba(9,178,172,0.1)" : "rgba(9,178,172,0.06)",
+              borderRadius: isDesktop ? 24 : 20,
+              borderWidth: 1,
+              borderColor: isDark ? "rgba(9,178,172,0.2)" : "rgba(9,178,172,0.15)",
+              padding: isDesktop ? 28 : 24,
+              alignItems: "center",
+              gap: 16,
+            }}>
             <Text style={{ fontSize: 14, fontWeight: "800", color: "#09b2ac", textTransform: "uppercase", letterSpacing: 1.5 }}>
               Votre Résultat
             </Text>
@@ -509,9 +661,9 @@ export default function QcmCalcScreen() {
                         </View>
                         <View style={{ width: 1, backgroundColor: colors.border }} />
                         <View style={{ alignItems: "center" }}>
-                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>Pourcentage</Text>
+                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>Réponses correctes</Text>
                           <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
-                            {ss.percentage.toFixed(1)}%
+                            {Math.round(ss.totalScore)} / {ss.to - ss.from + 1}
                           </Text>
                         </View>
                       </View>
@@ -558,9 +710,9 @@ export default function QcmCalcScreen() {
                   </View>
                   <View style={{ width: 1, backgroundColor: colors.border }} />
                   <View style={{ alignItems: "center" }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Pourcentage</Text>
+                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Réponses correctes</Text>
                     <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                      {result.percentage.toFixed(1)}%
+                      {Math.round(result.totalScore)} / {selectedExam.num_questions}
                     </Text>
                   </View>
                 </View>
@@ -589,6 +741,143 @@ export default function QcmCalcScreen() {
               </>
             )}
           </View>
+
+          {/* ── Per-question breakdown ── */}
+          {selectedExam && (
+            <View style={{ width: "100%", gap: 8, marginTop: 4 }}>
+              {/* Summary pills */}
+              <View style={{ flexDirection: "row", gap: 10, justifyContent: "center", marginBottom: 4 }}>
+                <View style={{
+                  flexDirection: "row", alignItems: "center", gap: 6,
+                  backgroundColor: "rgba(34,197,94,0.12)", paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                }}>
+                  <Check size={14} color="#22c55e" />
+                  <Text style={{ color: "#22c55e", fontSize: 13, fontWeight: "800" }}>
+                    {Array.from({ length: selectedExam.num_questions }, (_, i) => i + 1).filter((qNum) => {
+                      const correct = selectedExam.correct_answers[String(qNum)];
+                      const userAns = userAnswers[qNum] || [];
+                      if (!correct) return false;
+                      const sets = Array.isArray(correct[0]) ? correct as string[][] : [correct as string[]];
+                      return sets.some((set) => {
+                        const s = [...set].sort(); const u = [...userAns].sort();
+                        return s.length === u.length && s.every((v, i) => v === u[i]);
+                      });
+                    }).length} correctes
+                  </Text>
+                </View>
+                <View style={{
+                  flexDirection: "row", alignItems: "center", gap: 6,
+                  backgroundColor: "rgba(239,68,68,0.12)", paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                }}>
+                  <X size={14} color="#ef4444" />
+                  <Text style={{ color: "#ef4444", fontSize: 13, fontWeight: "800" }}>
+                    {Array.from({ length: selectedExam.num_questions }, (_, i) => i + 1).filter((qNum) => {
+                      const correct = selectedExam.correct_answers[String(qNum)];
+                      const userAns = userAnswers[qNum] || [];
+                      if (!correct) return false;
+                      const sets = Array.isArray(correct[0]) ? correct as string[][] : [correct as string[]];
+                      return !sets.some((set) => {
+                        const s = [...set].sort(); const u = [...userAns].sort();
+                        return s.length === u.length && s.every((v, i) => v === u[i]);
+                      });
+                    }).length} incorrectes
+                  </Text>
+                </View>
+              </View>
+
+              {/* Divider */}
+              <View style={{ height: 1, backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", marginVertical: 4 }} />
+              <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
+                Détail par question
+              </Text>
+
+              {/* Question rows */}
+              {Array.from({ length: selectedExam.num_questions }, (_, i) => i + 1).map((qNum) => {
+                const correct = selectedExam.correct_answers[String(qNum)];
+                const userAns = userAnswers[qNum] || [];
+                if (!correct) return null;
+
+                const sets = Array.isArray(correct[0]) ? correct as string[][] : [correct as string[]];
+                const isCorrect = sets.some((set) => {
+                  const s = [...set].sort(); const u = [...userAns].sort();
+                  return s.length === u.length && s.every((v, idx) => v === u[idx]);
+                });
+                // Best matching correct set to display
+                const displayCorrect = sets[0] as string[];
+
+                return (
+                  <View
+                    key={qNum}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      backgroundColor: isCorrect
+                        ? (isDark ? "rgba(34,197,94,0.08)" : "rgba(34,197,94,0.05)")
+                        : (isDark ? "rgba(239,68,68,0.08)" : "rgba(239,68,68,0.05)"),
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: isCorrect
+                        ? (isDark ? "rgba(34,197,94,0.2)" : "rgba(34,197,94,0.15)")
+                        : (isDark ? "rgba(239,68,68,0.2)" : "rgba(239,68,68,0.15)"),
+                      paddingHorizontal: 14,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    {/* Status icon */}
+                    <View style={{
+                      width: 28, height: 28, borderRadius: 8,
+                      backgroundColor: isCorrect ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                      alignItems: "center", justifyContent: "center",
+                    }}>
+                      {isCorrect
+                        ? <Check size={14} color="#22c55e" />
+                        : <X size={14} color="#ef4444" />}
+                    </View>
+
+                    {/* Q number */}
+                    <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: "800", width: 24 }}>Q{qNum}</Text>
+
+                    {/* Separator */}
+                    <View style={{ flex: 1, gap: 2 }}>
+                      {/* User answer */}
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700", width: 50 }}>Votre rép.</Text>
+                        {userAns.length === 0
+                          ? <Text style={{ color: colors.textMuted, fontSize: 12, fontStyle: "italic" }}>—</Text>
+                          : userAns.map((l) => (
+                            <View key={l} style={{
+                              width: 22, height: 22, borderRadius: 6,
+                              backgroundColor: isCorrect ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)",
+                              alignItems: "center", justifyContent: "center",
+                            }}>
+                              <Text style={{ color: isCorrect ? "#22c55e" : "#ef4444", fontSize: 11, fontWeight: "800" }}>{l}</Text>
+                            </View>
+                          ))
+                        }
+                      </View>
+                      {/* Correct answer */}
+                      {!isCorrect && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700", width: 50 }}>Correcte</Text>
+                          {displayCorrect.map((l) => (
+                            <View key={l} style={{
+                              width: 22, height: 22, borderRadius: 6,
+                              backgroundColor: "rgba(34,197,94,0.2)",
+                              alignItems: "center", justifyContent: "center",
+                            }}>
+                              <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "800" }}>{l}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+          </>
         )}
       </View>
     );
@@ -603,6 +892,7 @@ export default function QcmCalcScreen() {
       {showWebHeader && <WebHeader />}
 
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{
           alignItems: "center",

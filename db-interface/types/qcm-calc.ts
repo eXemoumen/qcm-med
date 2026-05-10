@@ -76,17 +76,17 @@ export interface QcmExamFilters {
 
 // Test type display labels (French)
 export const TEST_TYPE_LABELS: Record<TestType, string> = {
-  QCSs: 'QCS (Question à Choix Simple)',
-  allOrNothing: 'Tout ou Rien',
-  partiallyPositive: 'Partiellement Positive',
-  partiallyNegative: 'Partiellement Négative',
+  QCSs: 'QCS — Un seul choix',
+  allOrNothing: 'QCM — Multiple choix possible (Tout ou Rien)',
+  partiallyPositive: 'QCM — Multiple choix possible (Partiellement Positive)',
+  partiallyNegative: 'QCM — Multiple choix possible (Partiellement Négative)',
 };
 
 export const TEST_TYPE_OPTIONS: { value: TestType; label: string }[] = [
-  { value: 'QCSs', label: 'QCS (Choix Simple)' },
-  { value: 'allOrNothing', label: 'Tout ou Rien' },
-  { value: 'partiallyPositive', label: 'Partiellement Positive' },
-  { value: 'partiallyNegative', label: 'Partiellement Négative' },
+  { value: 'QCSs', label: 'QCS — Un seul choix' },
+  { value: 'allOrNothing', label: 'QCM — Tout ou Rien' },
+  { value: 'partiallyPositive', label: 'QCM — Partiellement Positive' },
+  { value: 'partiallyNegative', label: 'QCM — Partiellement Négative' },
 ];
 
 export const SESSION_OPTIONS: { value: ExamSession; label: string }[] = [
