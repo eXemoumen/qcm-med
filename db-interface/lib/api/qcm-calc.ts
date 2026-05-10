@@ -186,7 +186,15 @@ export async function updateQcmExam(id: string, formData: QcmExamFormData) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Non authentifié');
 
-    // Verify ownership
+    // Verify ownership and permissions
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    const isPrivileged = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
+
     const { data: existingExam, error: fetchError } = await supabase
       .from('qcm_exams')
       .select('created_by')
@@ -194,7 +202,8 @@ export async function updateQcmExam(id: string, formData: QcmExamFormData) {
       .single();
 
     if (fetchError) throw new Error('Examen introuvable');
-    if (existingExam.created_by !== session.user.id) {
+    
+    if (!isPrivileged && existingExam.created_by !== session.user.id) {
       throw new Error('Non autorisé à modifier cet examen');
     }
 
@@ -245,7 +254,15 @@ export async function deleteQcmExam(id: string) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Non authentifié');
 
-    // Verify ownership
+    // Verify ownership and permissions
+    const { data: userProfile } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    const isPrivileged = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
+
     const { data: existingExam, error: fetchError } = await supabase
       .from('qcm_exams')
       .select('created_by')
@@ -253,7 +270,8 @@ export async function deleteQcmExam(id: string) {
       .single();
 
     if (fetchError) throw new Error('Examen introuvable');
-    if (existingExam.created_by !== session.user.id) {
+    
+    if (!isPrivileged && existingExam.created_by !== session.user.id) {
       throw new Error('Non autorisé à supprimer cet examen');
     }
 
