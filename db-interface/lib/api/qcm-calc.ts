@@ -49,9 +49,7 @@ export async function getQcmExams(filters?: QcmExamFilters) {
     if (filters?.subject) {
       query = query.eq('subject', filters.subject);
     }
-    if (filters?.sub_discipline) {
-      query = query.eq('sub_discipline', filters.sub_discipline);
-    }
+
     if (filters?.session) {
       query = query.eq('session', filters.session);
     }
@@ -102,7 +100,7 @@ export async function getQcmExamFilterValues() {
   try {
     const { data, error } = await supabase
       .from('qcm_exams')
-      .select('speciality, grade, year, subject, session, sub_discipline');
+      .select('speciality, grade, year, subject, session');
 
     if (error) throw error;
 
@@ -115,7 +113,7 @@ export async function getQcmExamFilterValues() {
         years: [...new Set(items.map((d) => d.year).filter(Boolean))],
         subjects: [...new Set(items.map((d) => d.subject).filter(Boolean))],
         sessions: [...new Set(items.map((d) => d.session).filter(Boolean))],
-        sub_disciplines: [...new Set(items.map((d) => d.sub_discipline).filter(Boolean))],
+
       },
     };
   } catch (error: any) {
@@ -129,7 +127,7 @@ export async function getQcmExamFilterValues() {
         years: [],
         subjects: [],
         sessions: [],
-        sub_disciplines: [],
+
       },
     };
   }
@@ -154,7 +152,7 @@ export async function createQcmExam(formData: QcmExamFormData) {
         grade: formData.grade,
         year: formData.year.trim(),
         subject: formData.subject.trim(),
-        sub_discipline: formData.sub_discipline?.trim() || null,
+
         num_questions: formData.num_questions,
         test_type: formData.test_type,
         correct_answers: formAnswersToJsonb(formData.correct_answers),
@@ -222,7 +220,7 @@ export async function updateQcmExam(id: string, formData: QcmExamFormData) {
         grade: formData.grade,
         year: formData.year.trim(),
         subject: formData.subject.trim(),
-        sub_discipline: formData.sub_discipline?.trim() || null,
+
         num_questions: formData.num_questions,
         test_type: formData.test_type,
         correct_answers: formAnswersToJsonb(formData.correct_answers),

@@ -36,7 +36,7 @@ export interface QcmExam {
   grade: string;
   year: string;
   subject: string;
-  sub_discipline: string | null;
+
   num_questions: number;
   test_type: TestType;
   correct_answers: CorrectAnswersMap;
@@ -57,7 +57,7 @@ export interface QcmExamFormData {
   grade: string;
   year: string;
   subject: string;
-  sub_discipline: string;
+
   num_questions: number;
   test_type: TestType;
   correct_answers: Record<number, string[] | string[][]>;
@@ -73,7 +73,7 @@ export interface QcmExamFilters {
   grade?: string;
   year?: string;
   subject?: string;
-  sub_discipline?: string;
+
   session?: string;
 }
 

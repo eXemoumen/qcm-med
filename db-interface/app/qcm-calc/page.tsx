@@ -27,7 +27,7 @@ import {
   TEST_TYPE_LABELS,
   SECTION_TYPE_LABELS,
 } from '@/types/qcm-calc';
-import { PREDEFINED_MODULES, PREDEFINED_SUBDISCIPLINES } from '@/lib/predefined-modules';
+import { PREDEFINED_MODULES } from '@/lib/predefined-modules';
 
 // Map QCM Calc grade labels to PREDEFINED_MODULES year values
 const GRADE_TO_YEAR: Record<string, string> = {
@@ -61,7 +61,7 @@ const INITIAL_FORM: QcmExamFormData = {
   grade: '1ère année',
   year: '',
   subject: '',
-  sub_discipline: '',
+
   num_questions: 20,
   test_type: 'QCSs',
   correct_answers: {},
@@ -110,17 +110,7 @@ export default function QcmCalcPage() {
     return PREDEFINED_MODULES.filter(m => m.year === filterMappedYear);
   }, [filterMappedYear]);
 
-  // Sub-disciplines for the selected filter module
-  const filterSelectedModule = useMemo(() => {
-    return filterAvailableModules.find(m => m.name === filters.subject);
-  }, [filterAvailableModules, filters.subject]);
 
-  const filterAvailableSubDisciplines = useMemo(() => {
-    if (filterSelectedModule?.hasSubDisciplines && filterSelectedModule.name) {
-      return PREDEFINED_SUBDISCIPLINES[filterSelectedModule.name] || [];
-    }
-    return [];
-  }, [filterSelectedModule]);
 
   // ---------- Predefined Module Dropdowns ----------
   // Get the PREDEFINED_MODULES year key for the current grade
@@ -137,13 +127,7 @@ export default function QcmCalcPage() {
     return availableModules.find(m => m.name === formData.subject);
   }, [availableModules, formData.subject]);
 
-  // Sub-disciplines for selected module (UEI modules)
-  const availableSubDisciplines = useMemo(() => {
-    if (selectedModule?.hasSubDisciplines && selectedModule.name) {
-      return PREDEFINED_SUBDISCIPLINES[selectedModule.name] || [];
-    }
-    return [];
-  }, [selectedModule]);
+
 
   // Whether current grade has predefined modules
   const hasPredefinedModules = !!mappedYear && availableModules.length > 0;
@@ -244,7 +228,7 @@ export default function QcmCalcPage() {
       grade: exam.grade,
       year: exam.year,
       subject: exam.subject,
-      sub_discipline: exam.sub_discipline || '',
+
       num_questions: exam.num_questions,
       test_type: exam.test_type,
       correct_answers: answers,
@@ -431,9 +415,8 @@ export default function QcmCalcPage() {
                       setFormData((prev) => ({
                         ...prev,
                         grade: newGrade,
-                        // Reset subject & sub_discipline when grade changes
+                        // Reset subject when grade changes
                         subject: "",
-                        sub_discipline: "",
                         // Auto-clear sections when switching to a grade that doesn't support them
                         sections: GRADES_WITH_SECTIONS.has(newGrade)
                           ? prev.sections
@@ -484,7 +467,7 @@ export default function QcmCalcPage() {
                           setFormData((prev) => ({
                             ...prev,
                             subject: modName,
-                            sub_discipline: "",
+
                           }));
                         }}
                         className={inputCls}
@@ -532,29 +515,6 @@ export default function QcmCalcPage() {
                     </>
                   )}
                 </div>
-                {/* Sub-discipline (conditional — for UEI modules) */}
-                {availableSubDisciplines.length > 0 && (
-                  <div>
-                    <label className={labelCls}>Sous-discipline</label>
-                    <select
-                      value={formData.sub_discipline}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          sub_discipline: e.target.value,
-                        })
-                      }
-                      className={inputCls}
-                    >
-                      <option value="">Aucune (toutes)</option>
-                      {availableSubDisciplines.map((sub) => (
-                        <option key={sub} value={sub}>
-                          {sub}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
                 {/* Session */}
                 <div>
                   <label className={labelCls}>Session *</label>
@@ -1039,7 +999,7 @@ export default function QcmCalcPage() {
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-5 space-y-4">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.15em]">Filtres</span>
-            {(filters.speciality || filters.grade || filters.subject || filters.sub_discipline) && (
+            {(filters.speciality || filters.grade || filters.subject) && (
               <button
                 onClick={() => setFilters({})}
                 className="ml-auto text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 uppercase tracking-wider transition-colors"
@@ -1048,13 +1008,13 @@ export default function QcmCalcPage() {
               </button>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {/* 1. Spécialité */}
             <div>
               <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Spécialité</label>
               <select
                 value={filters.speciality || ''}
-                onChange={e => setFilters({ ...filters, speciality: e.target.value || undefined, grade: undefined, subject: undefined, sub_discipline: undefined })}
+                onChange={e => setFilters({ ...filters, speciality: e.target.value || undefined, grade: undefined, subject: undefined })}
                 className={inputCls + " text-sm"}
               >
                 <option value="">Toutes les spécialités</option>
@@ -1066,7 +1026,7 @@ export default function QcmCalcPage() {
               <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Année</label>
               <select
                 value={filters.grade || ''}
-                onChange={e => setFilters({ ...filters, grade: e.target.value || undefined, subject: undefined, sub_discipline: undefined })}
+                onChange={e => setFilters({ ...filters, grade: e.target.value || undefined, subject: undefined })}
                 className={inputCls + " text-sm"}
               >
                 <option value="">Toutes les années</option>
@@ -1078,7 +1038,7 @@ export default function QcmCalcPage() {
               <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Unité / Module</label>
               <select
                 value={filters.subject || ''}
-                onChange={e => setFilters({ ...filters, subject: e.target.value || undefined, sub_discipline: undefined })}
+                onChange={e => setFilters({ ...filters, subject: e.target.value || undefined })}
                 className={inputCls + " text-sm"}
                 disabled={!filters.grade}
               >
@@ -1094,21 +1054,7 @@ export default function QcmCalcPage() {
                 ))}
               </select>
             </div>
-            {/* 4. Sous-discipline (cascading — depends on selected module) */}
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Sous-discipline</label>
-              <select
-                value={filters.sub_discipline || ''}
-                onChange={e => setFilters({ ...filters, sub_discipline: e.target.value || undefined })}
-                className={inputCls + " text-sm"}
-                disabled={filterAvailableSubDisciplines.length === 0}
-              >
-                <option value="">{filterAvailableSubDisciplines.length > 0 ? 'Toutes' : 'N/A'}</option>
-                {filterAvailableSubDisciplines.map(sub => (
-                  <option key={sub} value={sub}>{sub}</option>
-                ))}
-              </select>
-            </div>
+
           </div>
         </div>
       )}
@@ -1154,9 +1100,7 @@ export default function QcmCalcPage() {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                       <span>📚 {exam.subject}</span>
-                      {exam.sub_discipline && (
-                        <span>📖 {exam.sub_discipline}</span>
-                      )}
+
                       <span>🎓 {exam.grade}</span>
                       <span>📅 {exam.year}</span>
                       <span>❓ {exam.num_questions} questions</span>

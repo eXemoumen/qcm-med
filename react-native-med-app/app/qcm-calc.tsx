@@ -27,7 +27,6 @@ import { useTheme } from "@/context/ThemeContext";
 import { supabase } from "@/lib/supabase";
 import {
   PREDEFINED_MODULES,
-  PREDEFINED_SUBDISCIPLINES,
   SPECIALITY_OPTIONS,
   GRADE_TO_YEAR,
   FILTER_GRADE_OPTIONS,
@@ -47,7 +46,7 @@ interface QcmExam {
   id: string;
   name: string;
   subject: string;
-  sub_discipline: string | null;
+
   grade: string;
   year: string;
   session: string;
@@ -88,11 +87,9 @@ export default function QcmCalcScreen() {
   const [filterSpeciality, setFilterSpeciality] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const [filterSubject, setFilterSubject] = useState("");
-  const [filterSubDiscipline, setFilterSubDiscipline] = useState("");
   const [showSpecialityDropdown, setShowSpecialityDropdown] = useState(false);
   const [showGradeDropdown, setShowGradeDropdown] = useState(false);
   const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
-  const [showSubDisciplineDropdown, setShowSubDisciplineDropdown] = useState(false);
 
   // Load exams
   useEffect(() => {
@@ -119,26 +116,14 @@ export default function QcmCalcScreen() {
     return PREDEFINED_MODULES.filter(m => m.year === filterMappedYear);
   }, [filterMappedYear]);
 
-  const filterSelectedModule = useMemo(() => {
-    return filterAvailableModules.find(m => m.name === filterSubject);
-  }, [filterAvailableModules, filterSubject]);
-
-  const filterAvailableSubDisciplines = useMemo(() => {
-    if (filterSelectedModule?.hasSubDisciplines && filterSelectedModule.name) {
-      return PREDEFINED_SUBDISCIPLINES[filterSelectedModule.name] || [];
-    }
-    return [];
-  }, [filterSelectedModule]);
-
   const filteredExams = useMemo(() => {
     return exams.filter((e) => {
       if (filterSpeciality && e.speciality !== filterSpeciality) return false;
       if (filterGrade && e.grade !== filterGrade) return false;
       if (filterSubject && e.subject !== filterSubject) return false;
-      if (filterSubDiscipline && e.sub_discipline !== filterSubDiscipline) return false;
       return true;
     });
-  }, [exams, filterSpeciality, filterGrade, filterSubject, filterSubDiscipline]);
+  }, [exams, filterSpeciality, filterGrade, filterSubject]);
 
   // Toggle answer — single-choice (radio) for QCSs, multi-select for QCM types
   const toggleAnswer = (qNum: number, label: string) => {
@@ -219,10 +204,9 @@ export default function QcmCalcScreen() {
     setFilterSpeciality("");
     setFilterGrade("");
     setFilterSubject("");
-    setFilterSubDiscipline("");
   };
 
-  const hasActiveFilters = filterSpeciality || filterGrade || filterSubject || filterSubDiscipline;
+  const hasActiveFilters = filterSpeciality || filterGrade || filterSubject;
 
   // Reusable dropdown modal renderer
   const renderDropdownModal = (
@@ -354,7 +338,7 @@ export default function QcmCalcScreen() {
             </Pressable>
           </View>
 
-          {/* Row 2: Module + Sous-discipline */}
+          {/* Row 2: Module */}
           <View style={{ flexDirection: isDesktop ? "row" : "column", gap: 10 }}>
             {/* ── Module Dropdown ── */}
             <Pressable
@@ -378,29 +362,6 @@ export default function QcmCalcScreen() {
               </Text>
               <ChevronDown size={16} color={filterSubject ? "#09b2ac" : colors.textMuted} />
             </Pressable>
-
-            {/* ── Sous-discipline Dropdown ── */}
-            <Pressable
-              onPress={() => filterAvailableSubDisciplines.length > 0 ? setShowSubDisciplineDropdown(true) : null}
-              style={{
-                flex: 1,
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
-                borderRadius: 12,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
-                borderWidth: 1,
-                borderColor: filterSubDiscipline ? "#09b2ac" : colors.border,
-                opacity: filterAvailableSubDisciplines.length > 0 ? 1 : 0.5,
-              }}
-            >
-              <Text style={{ color: filterSubDiscipline ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
-                {filterSubDiscipline || (filterAvailableSubDisciplines.length > 0 ? "Toutes sous-disciplines" : "N/A")}
-              </Text>
-              <ChevronDown size={16} color={filterSubDiscipline ? "#09b2ac" : colors.textMuted} />
-            </Pressable>
           </View>
         </View>
       </View>
@@ -413,7 +374,7 @@ export default function QcmCalcScreen() {
         filterSpeciality,
         "Toutes les spécialités",
         SPECIALITY_OPTIONS.map(s => ({ label: s, value: s })),
-        (v) => { setFilterSpeciality(v); setFilterGrade(""); setFilterSubject(""); setFilterSubDiscipline(""); },
+        (v) => { setFilterSpeciality(v); setFilterGrade(""); setFilterSubject(""); },
       )}
       {renderDropdownModal(
         showGradeDropdown,
@@ -422,7 +383,7 @@ export default function QcmCalcScreen() {
         filterGrade,
         "Toutes les années",
         FILTER_GRADE_OPTIONS.map(g => ({ label: g, value: g })),
-        (v) => { setFilterGrade(v); setFilterSubject(""); setFilterSubDiscipline(""); },
+        (v) => { setFilterGrade(v); setFilterSubject(""); },
       )}
       {renderDropdownModal(
         showSubjectDropdown,
@@ -435,16 +396,7 @@ export default function QcmCalcScreen() {
           value: m.name,
           prefix: m.type === 'uei' ? '🟢' : m.type === 'standalone' ? '🟡' : '🔵',
         })),
-        (v) => { setFilterSubject(v); setFilterSubDiscipline(""); },
-      )}
-      {renderDropdownModal(
-        showSubDisciplineDropdown,
-        () => setShowSubDisciplineDropdown(false),
-        "Sous-discipline",
-        filterSubDiscipline,
-        "Toutes",
-        filterAvailableSubDisciplines.map(s => ({ label: s, value: s })),
-        (v) => { setFilterSubDiscipline(v); },
+        (v) => { setFilterSubject(v); },
       )}
 
       {/* Exam cards */}
