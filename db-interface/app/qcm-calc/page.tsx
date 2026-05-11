@@ -7,7 +7,6 @@ import {
   createQcmExam,
   updateQcmExam,
   deleteQcmExam,
-  getQcmExamFilterValues,
 } from '@/lib/api/qcm-calc';
 import type {
   QcmExam,
@@ -28,11 +27,32 @@ import {
   TEST_TYPE_LABELS,
   SECTION_TYPE_LABELS,
 } from '@/types/qcm-calc';
+import { PREDEFINED_MODULES, PREDEFINED_SUBDISCIPLINES } from '@/lib/predefined-modules';
+
+// Map QCM Calc grade labels to PREDEFINED_MODULES year values
+const GRADE_TO_YEAR: Record<string, string> = {
+  '1ère année': '1',
+  '2ème année': '2',
+  '3ème année': '3',
+};
+
+// Generate academic year options (current year ± some range)
+const ACADEMIC_YEAR_OPTIONS: string[] = (() => {
+  const currentYear = new Date().getFullYear();
+  const years: string[] = [];
+  for (let y = currentYear + 1; y >= currentYear - 5; y--) {
+    years.push(`${y - 1}-${y}`);
+  }
+  return years;
+})();
 
 const ANSWER_LABELS = ['A', 'B', 'C', 'D', 'E'] as const;
 
-// Grades that support théorique/clinique sections (only 4th year and above)
-const GRADES_WITH_SECTIONS = new Set(['4ème année', '5ème année', '6ème année']);
+// Grades that support théorique/clinique sections (3rd year and above)
+const GRADES_WITH_SECTIONS = new Set(['3ème année', '4ème année', '5ème année', '6ème année']);
+
+// Filter grades limited to 1-3
+const FILTER_GRADE_OPTIONS = ['1ère année', '2ème année', '3ème année'];
 
 const INITIAL_FORM: QcmExamFormData = {
   name: '',
@@ -41,6 +61,7 @@ const INITIAL_FORM: QcmExamFormData = {
   grade: '1ère année',
   year: '',
   subject: '',
+  sub_discipline: '',
   num_questions: 20,
   test_type: 'QCSs',
   correct_answers: {},
@@ -66,12 +87,6 @@ export default function QcmCalcPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<QcmExamFormData>(INITIAL_FORM);
   const [filters, setFilters] = useState<QcmExamFilters>({});
-  const [filterValues, setFilterValues] = useState<{
-    specialities: string[];
-    grades: string[];
-    years: string[];
-    subjects: string[];
-  }>({ specialities: [], grades: [], years: [], subjects: [] });
 
   // ---------- Data Loading ----------
   const loadExams = useCallback(async () => {
@@ -85,15 +100,53 @@ export default function QcmCalcPage() {
     setLoading(false);
   }, [filters]);
 
-  const loadFilterValues = useCallback(async () => {
-    const result = await getQcmExamFilterValues();
-    if (result.success) {
-      setFilterValues(result.data);
-    }
-  }, []);
-
   useEffect(() => { loadExams(); }, [loadExams]);
-  useEffect(() => { loadFilterValues(); }, [loadFilterValues]);
+
+  // ---------- Filter Cascading Logic ----------
+  // Modules available for the selected filter grade
+  const filterMappedYear = GRADE_TO_YEAR[filters.grade || ''] || '';
+  const filterAvailableModules = useMemo(() => {
+    if (!filterMappedYear) return [];
+    return PREDEFINED_MODULES.filter(m => m.year === filterMappedYear);
+  }, [filterMappedYear]);
+
+  // Sub-disciplines for the selected filter module
+  const filterSelectedModule = useMemo(() => {
+    return filterAvailableModules.find(m => m.name === filters.subject);
+  }, [filterAvailableModules, filters.subject]);
+
+  const filterAvailableSubDisciplines = useMemo(() => {
+    if (filterSelectedModule?.hasSubDisciplines && filterSelectedModule.name) {
+      return PREDEFINED_SUBDISCIPLINES[filterSelectedModule.name] || [];
+    }
+    return [];
+  }, [filterSelectedModule]);
+
+  // ---------- Predefined Module Dropdowns ----------
+  // Get the PREDEFINED_MODULES year key for the current grade
+  const mappedYear = GRADE_TO_YEAR[formData.grade] || '';
+
+  // Modules available for the selected grade
+  const availableModules = useMemo(() => {
+    if (!mappedYear) return [];
+    return PREDEFINED_MODULES.filter(m => m.year === mappedYear);
+  }, [mappedYear]);
+
+  // Selected module details
+  const selectedModule = useMemo(() => {
+    return availableModules.find(m => m.name === formData.subject);
+  }, [availableModules, formData.subject]);
+
+  // Sub-disciplines for selected module (UEI modules)
+  const availableSubDisciplines = useMemo(() => {
+    if (selectedModule?.hasSubDisciplines && selectedModule.name) {
+      return PREDEFINED_SUBDISCIPLINES[selectedModule.name] || [];
+    }
+    return [];
+  }, [selectedModule]);
+
+  // Whether current grade has predefined modules
+  const hasPredefinedModules = !!mappedYear && availableModules.length > 0;
 
   // ---------- Form Handlers ----------
   const toggleAnswer = (questionNum: number, label: string) => {
@@ -157,7 +210,7 @@ export default function QcmCalcPage() {
       setEditingId(null);
       setFormData(INITIAL_FORM);
       await loadExams();
-      await loadFilterValues();
+
       setTimeout(() => setSuccess(null), 3000);
     } else {
       setError(result.error || 'Erreur');
@@ -191,6 +244,7 @@ export default function QcmCalcPage() {
       grade: exam.grade,
       year: exam.year,
       subject: exam.subject,
+      sub_discipline: exam.sub_discipline || '',
       num_questions: exam.num_questions,
       test_type: exam.test_type,
       correct_answers: answers,
@@ -210,7 +264,6 @@ export default function QcmCalcPage() {
     if (result.success) {
       setSuccess('✅ Examen supprimé!');
       await loadExams();
-      await loadFilterValues();
       setTimeout(() => setSuccess(null), 3000);
     } else {
       setError(result.error || 'Erreur de suppression');
@@ -253,11 +306,17 @@ export default function QcmCalcPage() {
           }}
           className={`px-6 py-3 rounded-2xl transition-all text-sm font-bold shadow-lg flex items-center gap-2 ${
             showForm
-              ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 shadow-none'
-              : 'bg-primary-600 text-white hover:bg-primary-700 shadow-primary-500/20 active:scale-[0.98]'
+              ? "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 shadow-none"
+              : "bg-primary-600 text-white hover:bg-primary-700 shadow-primary-500/20 active:scale-[0.98]"
           }`}
         >
-          {showForm ? 'Annuler' : <><span>➕</span> Nouvel Examen</>}
+          {showForm ? (
+            "Annuler"
+          ) : (
+            <>
+              <span>➕</span> Nouvel Examen
+            </>
+          )}
         </button>
       </div>
 
@@ -276,13 +335,20 @@ export default function QcmCalcPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total Examens', value: stats.total, icon: '📋' },
-          { label: 'Matières', value: stats.subjects, icon: '📚' },
-          { label: 'Questions', value: stats.totalQuestions, icon: '❓' },
+          { label: "Total Examens", value: stats.total, icon: "📋" },
+          { label: "Matières", value: stats.subjects, icon: "📚" },
+          { label: "Questions", value: stats.totalQuestions, icon: "❓" },
         ].map((item, idx) => (
-          <div key={idx} className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-white/5 shadow-sm">
-            <p className="text-slate-500 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-1">{item.label}</p>
-            <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-white">{item.value}</p>
+          <div
+            key={idx}
+            className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200 dark:border-white/5 shadow-sm"
+          >
+            <p className="text-slate-500 dark:text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-1">
+              {item.label}
+            </p>
+            <p className="text-xl md:text-2xl font-black text-slate-900 dark:text-white">
+              {item.value}
+            </p>
           </div>
         ))}
       </div>
@@ -295,9 +361,9 @@ export default function QcmCalcPage() {
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-3">
               <span className="w-10 h-10 flex items-center justify-center bg-primary-50 dark:bg-primary-900/20 rounded-xl text-primary-600">
-                {editingId ? '✏️' : '✨'}
+                {editingId ? "✏️" : "✨"}
               </span>
-              {editingId ? 'Modifier l\'Examen' : 'Nouvel Examen'}
+              {editingId ? "Modifier l'Examen" : "Nouvel Examen"}
             </h2>
           </div>
 
@@ -314,63 +380,233 @@ export default function QcmCalcPage() {
                 {/* Name */}
                 <div className="md:col-span-2">
                   <label className={labelCls}>Nom de l&apos;examen *</label>
-                  <input type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className={inputCls} placeholder="ex: EMD Anatomie 2025" required />
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
+                    className={inputCls}
+                    placeholder="ex: EMD Anatomie 2025"
+                    required
+                  />
                 </div>
                 {/* Description */}
                 <div className="md:col-span-2">
                   <label className={labelCls}>Description</label>
-                  <textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className={inputCls + " min-h-[80px]"} placeholder="Description optionnelle..." />
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
+                    className={inputCls + " min-h-[80px]"}
+                    placeholder="Description optionnelle..."
+                  />
                 </div>
                 {/* Speciality */}
                 <div>
                   <label className={labelCls}>Spécialité *</label>
-                  <select value={formData.speciality} onChange={e => setFormData({ ...formData, speciality: e.target.value })} className={inputCls} required>
-                    {SPECIALITY_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                  <select
+                    value={formData.speciality}
+                    onChange={(e) =>
+                      setFormData({ ...formData, speciality: e.target.value })
+                    }
+                    className={inputCls}
+                    required
+                  >
+                    {SPECIALITY_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 {/* Grade */}
                 <div>
                   <label className={labelCls}>Niveau *</label>
-                  <select value={formData.grade} onChange={e => {
-                    const newGrade = e.target.value;
-                    setFormData(prev => ({
-                      ...prev,
-                      grade: newGrade,
-                      // Auto-clear sections when switching to a grade that doesn't support them
-                      sections: GRADES_WITH_SECTIONS.has(newGrade) ? prev.sections : [],
-                    }));
-                  }} className={inputCls} required>
-                    {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                  <select
+                    value={formData.grade}
+                    onChange={(e) => {
+                      const newGrade = e.target.value;
+                      setFormData((prev) => ({
+                        ...prev,
+                        grade: newGrade,
+                        // Reset subject & sub_discipline when grade changes
+                        subject: "",
+                        sub_discipline: "",
+                        // Auto-clear sections when switching to a grade that doesn't support them
+                        sections: GRADES_WITH_SECTIONS.has(newGrade)
+                          ? prev.sections
+                          : [],
+                      }));
+                    }}
+                    className={inputCls}
+                    required
+                  >
+                    {GRADE_OPTIONS.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
                   </select>
                 </div>
-                {/* Year */}
+                {/* Year (Academic Year) */}
                 <div>
                   <label className={labelCls}>Année Universitaire *</label>
-                  <input type="text" value={formData.year} onChange={e => setFormData({ ...formData, year: e.target.value })} className={inputCls} placeholder="ex: 2024-2025" required />
+                  <select
+                    value={formData.year}
+                    onChange={(e) =>
+                      setFormData({ ...formData, year: e.target.value })
+                    }
+                    className={inputCls}
+                    required
+                  >
+                    <option value="">Sélectionner l&apos;année</option>
+                    {ACADEMIC_YEAR_OPTIONS.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                {/* Subject */}
-                <div>
-                  <label className={labelCls}>Matière *</label>
-                  <input type="text" value={formData.subject} onChange={e => setFormData({ ...formData, subject: e.target.value })} className={inputCls} placeholder="ex: Anatomie" required />
+                {/* Subject (Module) — Dropdown for years 1-3, free text for 4-6 */}
+                <div className="md:col-span-2">
+                  <label className={labelCls}> Unité/ Module *</label>
+                  {hasPredefinedModules ? (
+                    <>
+                      <select
+                        value={formData.subject}
+                        onChange={(e) => {
+                          const modName = e.target.value;
+                          const selectedMod = availableModules.find(
+                            (m) => m.name === modName,
+                          );
+                          setFormData((prev) => ({
+                            ...prev,
+                            subject: modName,
+                            sub_discipline: "",
+                          }));
+                        }}
+                        className={inputCls}
+                        required
+                      >
+                        <option value="">Sélectionner un module</option>
+                        {availableModules.map((module) => (
+                          <option key={module.name} value={module.name}>
+                            {module.type === "uei" && "🟢 UEI: "}
+                            {module.type === "standalone" && "🟡 "}
+                            {module.type === "annual" && "🔵 "}
+                            {module.type === "semestrial" && "🔵 "}
+                            {module.name}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedModule && (
+                        <p className="text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-wider mt-2 ml-1">
+                          {selectedModule.type === "uei" &&
+                            "🟢 Unité d'Enseignement Intégré (UEI)"}
+                          {selectedModule.type === "standalone" &&
+                            "🟡 Module Autonome"}
+                          {selectedModule.type === "annual" &&
+                            "🔵 Module Annuel"}
+                          {selectedModule.type === "semestrial" &&
+                            "🔵 Module Semestriel"}
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={formData.subject}
+                        onChange={(e) =>
+                          setFormData({ ...formData, subject: e.target.value })
+                        }
+                        className={inputCls}
+                        placeholder="ex: Cardiologie"
+                        required
+                      />
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 ml-1">
+                        Pas de modules prédéfinis pour ce niveau — saisie libre
+                      </p>
+                    </>
+                  )}
                 </div>
+                {/* Sub-discipline (conditional — for UEI modules) */}
+                {availableSubDisciplines.length > 0 && (
+                  <div>
+                    <label className={labelCls}>Sous-discipline</label>
+                    <select
+                      value={formData.sub_discipline}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          sub_discipline: e.target.value,
+                        })
+                      }
+                      className={inputCls}
+                    >
+                      <option value="">Aucune (toutes)</option>
+                      {availableSubDisciplines.map((sub) => (
+                        <option key={sub} value={sub}>
+                          {sub}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {/* Session */}
                 <div>
                   <label className={labelCls}>Session *</label>
-                  <select value={formData.session} onChange={e => setFormData({ ...formData, session: e.target.value as ExamSession })} className={inputCls}>
-                    {SESSION_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  <select
+                    value={formData.session}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        session: e.target.value as ExamSession,
+                      })
+                    }
+                    className={inputCls}
+                  >
+                    {SESSION_OPTIONS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 {/* Exam Kind */}
                 <div>
                   <label className={labelCls}>Type d&apos;Examen *</label>
-                  <select value={formData.exam_type} onChange={e => setFormData({ ...formData, exam_type: e.target.value as ExamKind })} className={inputCls}>
-                    {EXAM_KIND_OPTIONS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
+                  <select
+                    value={formData.exam_type}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        exam_type: e.target.value as ExamKind,
+                      })
+                    }
+                    className={inputCls}
+                  >
+                    {EXAM_KIND_OPTIONS.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 {/* Rotation */}
                 <div>
                   <label className={labelCls}>Rotation (optionnel)</label>
-                  <input type="text" value={formData.rotation} onChange={e => setFormData({ ...formData, rotation: e.target.value })} className={inputCls} placeholder="ex: Rotation A" />
+                  <input
+                    type="text"
+                    value={formData.rotation}
+                    onChange={(e) =>
+                      setFormData({ ...formData, rotation: e.target.value })
+                    }
+                    className={inputCls}
+                    placeholder="ex: Rotation A"
+                  />
                 </div>
               </div>
             </div>
@@ -391,9 +627,9 @@ export default function QcmCalcPage() {
                     min={1}
                     max={200}
                     value={formData.num_questions}
-                    onChange={e => {
+                    onChange={(e) => {
                       const val = parseInt(e.target.value) || 1;
-                      setFormData(prev => ({
+                      setFormData((prev) => ({
                         ...prev,
                         num_questions: Math.min(200, Math.max(1, val)),
                       }));
@@ -406,11 +642,18 @@ export default function QcmCalcPage() {
                   <label className={labelCls}>Type de Correction *</label>
                   <select
                     value={formData.test_type}
-                    onChange={e => setFormData({ ...formData, test_type: e.target.value as TestType })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        test_type: e.target.value as TestType,
+                      })
+                    }
                     className={inputCls}
                   >
-                    {TEST_TYPE_OPTIONS.map(t => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
+                    {TEST_TYPE_OPTIONS.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -419,103 +662,163 @@ export default function QcmCalcPage() {
 
             {/* Section: Sections Builder — only for 4th year and above */}
             {GRADES_WITH_SECTIONS.has(formData.grade) && (
-            <div className="space-y-6">
-              <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] flex items-center gap-3">
-                <span className="flex-1 h-px bg-slate-100 dark:bg-white/5" />
-                Sections (Théorique / Cas Clinique)
-                <span className="flex-1 h-px bg-slate-100 dark:bg-white/5" />
-              </h3>
+              <div className="space-y-6">
+                <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] flex items-center gap-3">
+                  <span className="flex-1 h-px bg-slate-100 dark:bg-white/5" />
+                  Sections (Théorique / Cas Clinique)
+                  <span className="flex-1 h-px bg-slate-100 dark:bg-white/5" />
+                </h3>
 
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                Optionnel — Définissez les plages de questions théoriques et cliniques si l&apos;examen est mixte.
-              </p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Optionnel — Définissez les plages de questions théoriques et
+                  cliniques si l&apos;examen est mixte.
+                </p>
 
-              {/* Existing sections */}
-              {(formData.sections || []).map((section, idx) => (
-                <div key={idx} className={`flex flex-wrap items-center gap-3 p-3 rounded-xl border ${SECTION_COLORS[section.type].bg} ${SECTION_COLORS[section.type].border}`}>
-                  <span className={`text-xs font-bold uppercase ${SECTION_COLORS[section.type].text}`}>
-                    {SECTION_TYPE_LABELS[section.type]}
-                  </span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    Q{section.from} → Q{section.to} ({section.to - section.from + 1} questions)
-                  </span>
-                  {section.label && (
-                    <span className="text-xs text-slate-400 italic">— {section.label}</span>
-                  )}
+                {/* Existing sections */}
+                {(formData.sections || []).map((section, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex flex-wrap items-center gap-3 p-3 rounded-xl border ${SECTION_COLORS[section.type].bg} ${SECTION_COLORS[section.type].border}`}
+                  >
+                    <span
+                      className={`text-xs font-bold uppercase ${SECTION_COLORS[section.type].text}`}
+                    >
+                      {SECTION_TYPE_LABELS[section.type]}
+                    </span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Q{section.from} → Q{section.to} (
+                      {section.to - section.from + 1} questions)
+                    </span>
+                    {section.label && (
+                      <span className="text-xs text-slate-400 italic">
+                        — {section.label}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          sections: prev.sections.filter((_, i) => i !== idx),
+                        }));
+                      }}
+                      className="ml-auto text-red-400 hover:text-red-600 text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add section form */}
+                <div className="flex flex-wrap items-end gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-white/10">
+                  <div>
+                    <label className={labelCls}>Type</label>
+                    <select
+                      id="new-section-type"
+                      className={inputCls + " !w-auto"}
+                      defaultValue="théorique"
+                    >
+                      <option value="théorique">Théorique</option>
+                      <option value="clinique">Cas Clinique</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>De Q</label>
+                    <input
+                      id="new-section-from"
+                      type="number"
+                      min={1}
+                      max={200}
+                      className={inputCls + " !w-24"}
+                      placeholder="1"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>À Q</label>
+                    <input
+                      id="new-section-to"
+                      type="number"
+                      min={1}
+                      max={200}
+                      className={inputCls + " !w-24"}
+                      placeholder="13"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Label (opt.)</label>
+                    <input
+                      id="new-section-label"
+                      type="text"
+                      className={inputCls + " !w-40"}
+                      placeholder="Cas Clinique 1"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      setFormData(prev => ({
+                      const typeEl = document.getElementById(
+                        "new-section-type",
+                      ) as HTMLSelectElement;
+                      const fromEl = document.getElementById(
+                        "new-section-from",
+                      ) as HTMLInputElement;
+                      const toEl = document.getElementById(
+                        "new-section-to",
+                      ) as HTMLInputElement;
+                      const labelEl = document.getElementById(
+                        "new-section-label",
+                      ) as HTMLInputElement;
+                      const from = parseInt(fromEl.value);
+                      const to = parseInt(toEl.value);
+                      if (!from || !to || from > to) {
+                        setError('Plage invalide: "De" doit être ≤ "À".');
+                        return;
+                      }
+                      if (from < 1) {
+                        setError("La question de départ doit être ≥ 1.");
+                        return;
+                      }
+                      if (to > formData.num_questions) {
+                        setError(
+                          `Q${to} dépasse le nombre total de questions (${formData.num_questions}).`,
+                        );
+                        return;
+                      }
+                      // Check for overlaps with existing sections
+                      const overlap = formData.sections.find(
+                        (s) => from <= s.to && to >= s.from,
+                      );
+                      if (overlap) {
+                        setError(
+                          `Chevauchement détecté avec la section "${SECTION_TYPE_LABELS[overlap.type]}" (Q${overlap.from}→Q${overlap.to}). Les plages ne doivent pas se chevaucher.`,
+                        );
+                        return;
+                      }
+                      const newSection: ExamSection = {
+                        type: typeEl.value as SectionType,
+                        from,
+                        to,
+                        ...(labelEl.value.trim()
+                          ? { label: labelEl.value.trim() }
+                          : {}),
+                      };
+                      setFormData((prev) => ({
                         ...prev,
-                        sections: prev.sections.filter((_, i) => i !== idx),
+                        sections: [...prev.sections, newSection].sort(
+                          (a, b) => a.from - b.from,
+                        ),
                       }));
+                      setError(null);
+                      fromEl.value = "";
+                      toEl.value = "";
+                      labelEl.value = "";
                     }}
-                    className="ml-auto text-red-400 hover:text-red-600 text-xs font-bold"
+                    className="px-4 py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 transition-all"
                   >
-                    ✕
+                    + Ajouter
                   </button>
                 </div>
-              ))}
-
-              {/* Add section form */}
-              <div className="flex flex-wrap items-end gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-dashed border-slate-200 dark:border-white/10">
-                <div>
-                  <label className={labelCls}>Type</label>
-                  <select id="new-section-type" className={inputCls + " !w-auto"} defaultValue="théorique">
-                    <option value="théorique">Théorique</option>
-                    <option value="clinique">Cas Clinique</option>
-                  </select>
-                </div>
-                <div>
-                  <label className={labelCls}>De Q</label>
-                  <input id="new-section-from" type="number" min={1} max={200} className={inputCls + " !w-24"} placeholder="1" />
-                </div>
-                <div>
-                  <label className={labelCls}>À Q</label>
-                  <input id="new-section-to" type="number" min={1} max={200} className={inputCls + " !w-24"} placeholder="13" />
-                </div>
-                <div>
-                  <label className={labelCls}>Label (opt.)</label>
-                  <input id="new-section-label" type="text" className={inputCls + " !w-40"} placeholder="Cas Clinique 1" />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const typeEl = document.getElementById('new-section-type') as HTMLSelectElement;
-                    const fromEl = document.getElementById('new-section-from') as HTMLInputElement;
-                    const toEl = document.getElementById('new-section-to') as HTMLInputElement;
-                    const labelEl = document.getElementById('new-section-label') as HTMLInputElement;
-                    const from = parseInt(fromEl.value);
-                    const to = parseInt(toEl.value);
-                    if (!from || !to || from > to) {
-                      setError('Plage invalide: "De" doit être ≤ "À".');
-                      return;
-                    }
-                    if (to > formData.num_questions) {
-                      setError(`Q${to} dépasse le nombre total de questions (${formData.num_questions}).`);
-                      return;
-                    }
-                    const newSection: ExamSection = {
-                      type: typeEl.value as SectionType,
-                      from,
-                      to,
-                      ...(labelEl.value.trim() ? { label: labelEl.value.trim() } : {}),
-                    };
-                    setFormData(prev => ({
-                      ...prev,
-                      sections: [...prev.sections, newSection].sort((a, b) => a.from - b.from),
-                    }));
-                    setError(null);
-                    fromEl.value = '';
-                    toEl.value = '';
-                    labelEl.value = '';
-                  }}
-                  className="px-4 py-3 bg-primary-600 text-white rounded-xl text-sm font-bold hover:bg-primary-700 transition-all"
-                >
-                  + Ajouter
-                </button>
               </div>
-            </div>
             )}
 
             {/* Section: Answer Grid (grouped by sections if defined) */}
@@ -529,26 +832,42 @@ export default function QcmCalcPage() {
               {(() => {
                 // Build question list, grouped by sections if defined
                 const hasSections = (formData.sections || []).length > 0;
-                const allQuestions = Array.from({ length: formData.num_questions }, (_, i) => i + 1);
+                const allQuestions = Array.from(
+                  { length: formData.num_questions },
+                  (_, i) => i + 1,
+                );
 
                 if (!hasSections) {
                   // No sections: flat grid
                   return (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                      {allQuestions.map(qNum => {
-                        const rawSelected = formData.correct_answers[qNum] || [];
-                        const selected = (rawSelected.length > 0 && Array.isArray(rawSelected[0])) 
-                          ? (rawSelected[0] as unknown as string[]) 
-                          : (rawSelected as string[]);
+                      {allQuestions.map((qNum) => {
+                        const rawSelected =
+                          formData.correct_answers[qNum] || [];
+                        const selected =
+                          rawSelected.length > 0 &&
+                          Array.isArray(rawSelected[0])
+                            ? (rawSelected[0] as unknown as string[])
+                            : (rawSelected as string[]);
                         const hasAnswer = selected.length > 0;
                         return (
-                          <div key={qNum} className={`p-3 rounded-xl border transition-all ${hasAnswer ? 'border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10' : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'}`}>
-                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">Q{qNum}</p>
+                          <div
+                            key={qNum}
+                            className={`p-3 rounded-xl border transition-all ${hasAnswer ? "border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10" : "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"}`}
+                          >
+                            <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
+                              Q{qNum}
+                            </p>
                             <div className="flex gap-1.5">
-                              {ANSWER_LABELS.map(label => {
+                              {ANSWER_LABELS.map((label) => {
                                 const isSelected = selected.includes(label);
                                 return (
-                                  <button key={label} type="button" onClick={() => toggleAnswer(qNum, label)} className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${isSelected ? 'bg-primary-600 text-white shadow-md shadow-primary-500/30 scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                                  <button
+                                    key={label}
+                                    type="button"
+                                    onClick={() => toggleAnswer(qNum, label)}
+                                    className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${isSelected ? "bg-primary-600 text-white shadow-md shadow-primary-500/30 scale-105" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"}`}
+                                  >
                                     {label}
                                   </button>
                                 );
@@ -563,37 +882,64 @@ export default function QcmCalcPage() {
 
                 // With sections: grouped display
                 const assignedQuestions = new Set<number>();
-                (formData.sections || []).forEach(s => {
+                (formData.sections || []).forEach((s) => {
                   for (let q = s.from; q <= s.to; q++) assignedQuestions.add(q);
                 });
-                const unassigned = allQuestions.filter(q => !assignedQuestions.has(q));
+                const unassigned = allQuestions.filter(
+                  (q) => !assignedQuestions.has(q),
+                );
 
                 return (
                   <div className="space-y-6">
                     {(formData.sections || []).map((section, sIdx) => {
-                      const sectionQuestions = Array.from({ length: section.to - section.from + 1 }, (_, i) => section.from + i);
+                      const sectionQuestions = Array.from(
+                        { length: section.to - section.from + 1 },
+                        (_, i) => section.from + i,
+                      );
                       const colors = SECTION_COLORS[section.type];
                       return (
-                        <div key={sIdx} className={`p-4 rounded-2xl border ${colors.bg} ${colors.border}`}>
-                          <p className={`text-xs font-black uppercase tracking-widest mb-3 ${colors.text}`}>
-                            {SECTION_TYPE_LABELS[section.type]} — Q{section.from}→Q{section.to}
+                        <div
+                          key={sIdx}
+                          className={`p-4 rounded-2xl border ${colors.bg} ${colors.border}`}
+                        >
+                          <p
+                            className={`text-xs font-black uppercase tracking-widest mb-3 ${colors.text}`}
+                          >
+                            {SECTION_TYPE_LABELS[section.type]} — Q
+                            {section.from}→Q{section.to}
                             {section.label && ` (${section.label})`}
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                            {sectionQuestions.map(qNum => {
-                              const rawSelected = formData.correct_answers[qNum] || [];
-                              const selected = (rawSelected.length > 0 && Array.isArray(rawSelected[0])) 
-                                ? (rawSelected[0] as unknown as string[]) 
-                                : (rawSelected as string[]);
+                            {sectionQuestions.map((qNum) => {
+                              const rawSelected =
+                                formData.correct_answers[qNum] || [];
+                              const selected =
+                                rawSelected.length > 0 &&
+                                Array.isArray(rawSelected[0])
+                                  ? (rawSelected[0] as unknown as string[])
+                                  : (rawSelected as string[]);
                               const hasAnswer = selected.length > 0;
                               return (
-                                <div key={qNum} className={`p-3 rounded-xl border transition-all bg-white dark:bg-slate-900 ${hasAnswer ? 'border-primary-200 dark:border-primary-800' : 'border-red-200 dark:border-red-800'}`}>
-                                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">Q{qNum}</p>
+                                <div
+                                  key={qNum}
+                                  className={`p-3 rounded-xl border transition-all bg-white dark:bg-slate-900 ${hasAnswer ? "border-primary-200 dark:border-primary-800" : "border-red-200 dark:border-red-800"}`}
+                                >
+                                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
+                                    Q{qNum}
+                                  </p>
                                   <div className="flex gap-1.5">
-                                    {ANSWER_LABELS.map(label => {
-                                      const isSelected = selected.includes(label);
+                                    {ANSWER_LABELS.map((label) => {
+                                      const isSelected =
+                                        selected.includes(label);
                                       return (
-                                        <button key={label} type="button" onClick={() => toggleAnswer(qNum, label)} className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${isSelected ? 'bg-primary-600 text-white shadow-md shadow-primary-500/30 scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                                        <button
+                                          key={label}
+                                          type="button"
+                                          onClick={() =>
+                                            toggleAnswer(qNum, label)
+                                          }
+                                          className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${isSelected ? "bg-primary-600 text-white shadow-md shadow-primary-500/30 scale-105" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"}`}
+                                        >
                                           {label}
                                         </button>
                                       );
@@ -614,20 +960,35 @@ export default function QcmCalcPage() {
                           Non assignées ({unassigned.length})
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                          {unassigned.map(qNum => {
-                            const rawSelected = formData.correct_answers[qNum] || [];
-                            const selected = (rawSelected.length > 0 && Array.isArray(rawSelected[0])) 
-                              ? (rawSelected[0] as unknown as string[]) 
-                              : (rawSelected as string[]);
+                          {unassigned.map((qNum) => {
+                            const rawSelected =
+                              formData.correct_answers[qNum] || [];
+                            const selected =
+                              rawSelected.length > 0 &&
+                              Array.isArray(rawSelected[0])
+                                ? (rawSelected[0] as unknown as string[])
+                                : (rawSelected as string[]);
                             const hasAnswer = selected.length > 0;
                             return (
-                              <div key={qNum} className={`p-3 rounded-xl border transition-all ${hasAnswer ? 'border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10' : 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'}`}>
-                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">Q{qNum}</p>
+                              <div
+                                key={qNum}
+                                className={`p-3 rounded-xl border transition-all ${hasAnswer ? "border-primary-200 dark:border-primary-800 bg-primary-50/50 dark:bg-primary-900/10" : "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"}`}
+                              >
+                                <p className="text-xs font-bold text-slate-500 dark:text-slate-400 mb-2">
+                                  Q{qNum}
+                                </p>
                                 <div className="flex gap-1.5">
-                                  {ANSWER_LABELS.map(label => {
+                                  {ANSWER_LABELS.map((label) => {
                                     const isSelected = selected.includes(label);
                                     return (
-                                      <button key={label} type="button" onClick={() => toggleAnswer(qNum, label)} className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${isSelected ? 'bg-primary-600 text-white shadow-md shadow-primary-500/30 scale-105' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}>
+                                      <button
+                                        key={label}
+                                        type="button"
+                                        onClick={() =>
+                                          toggleAnswer(qNum, label)
+                                        }
+                                        className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${isSelected ? "bg-primary-600 text-white shadow-md shadow-primary-500/30 scale-105" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"}`}
+                                      >
                                         {label}
                                       </button>
                                     );
@@ -651,7 +1012,11 @@ export default function QcmCalcPage() {
                 disabled={saving}
                 className="px-8 py-3 bg-primary-600 text-white rounded-2xl font-bold hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20 disabled:opacity-50 active:scale-[0.98]"
               >
-                {saving ? 'Enregistrement...' : editingId ? 'Mettre à jour' : 'Créer l\'Examen'}
+                {saving
+                  ? "Enregistrement..."
+                  : editingId
+                    ? "Mettre à jour"
+                    : "Créer l'Examen"}
               </button>
               <button
                 type="button"
@@ -671,24 +1036,79 @@ export default function QcmCalcPage() {
 
       {/* ========== FILTERS ========== */}
       {!showForm && (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <select value={filters.speciality || ''} onChange={e => setFilters({ ...filters, speciality: e.target.value || undefined })} className={inputCls + " text-sm"}>
-              <option value="">Toutes spécialités</option>
-              {filterValues.specialities.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select value={filters.grade || ''} onChange={e => setFilters({ ...filters, grade: e.target.value || undefined })} className={inputCls + " text-sm"}>
-              <option value="">Tous niveaux</option>
-              {filterValues.grades.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-            <select value={filters.year || ''} onChange={e => setFilters({ ...filters, year: e.target.value || undefined })} className={inputCls + " text-sm"}>
-              <option value="">Toutes années</option>
-              {filterValues.years.map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select value={filters.subject || ''} onChange={e => setFilters({ ...filters, subject: e.target.value || undefined })} className={inputCls + " text-sm"}>
-              <option value="">Toutes matières</option>
-              {filterValues.subjects.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-5 space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.15em]">Filtres</span>
+            {(filters.speciality || filters.grade || filters.subject || filters.sub_discipline) && (
+              <button
+                onClick={() => setFilters({})}
+                className="ml-auto text-[10px] font-bold text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 uppercase tracking-wider transition-colors"
+              >
+                ✕ Réinitialiser
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* 1. Spécialité */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Spécialité</label>
+              <select
+                value={filters.speciality || ''}
+                onChange={e => setFilters({ ...filters, speciality: e.target.value || undefined, grade: undefined, subject: undefined, sub_discipline: undefined })}
+                className={inputCls + " text-sm"}
+              >
+                <option value="">Toutes les spécialités</option>
+                {SPECIALITY_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            {/* 2. Année */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Année</label>
+              <select
+                value={filters.grade || ''}
+                onChange={e => setFilters({ ...filters, grade: e.target.value || undefined, subject: undefined, sub_discipline: undefined })}
+                className={inputCls + " text-sm"}
+              >
+                <option value="">Toutes les années</option>
+                {FILTER_GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            {/* 3. Module (cascading — depends on selected année) */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Unité / Module</label>
+              <select
+                value={filters.subject || ''}
+                onChange={e => setFilters({ ...filters, subject: e.target.value || undefined, sub_discipline: undefined })}
+                className={inputCls + " text-sm"}
+                disabled={!filters.grade}
+              >
+                <option value="">{filters.grade ? 'Tous les modules' : 'Sélectionner une année d\'abord'}</option>
+                {filterAvailableModules.map(m => (
+                  <option key={m.name} value={m.name}>
+                    {m.type === 'uei' && '🟢 '}
+                    {m.type === 'standalone' && '🟡 '}
+                    {m.type === 'annual' && '🔵 '}
+                    {m.type === 'semestrial' && '🔵 '}
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {/* 4. Sous-discipline (cascading — depends on selected module) */}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1.5 ml-0.5">Sous-discipline</label>
+              <select
+                value={filters.sub_discipline || ''}
+                onChange={e => setFilters({ ...filters, sub_discipline: e.target.value || undefined })}
+                className={inputCls + " text-sm"}
+                disabled={filterAvailableSubDisciplines.length === 0}
+              >
+                <option value="">{filterAvailableSubDisciplines.length > 0 ? 'Toutes' : 'N/A'}</option>
+                {filterAvailableSubDisciplines.map(sub => (
+                  <option key={sub} value={sub}>{sub}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       )}
@@ -699,21 +1119,32 @@ export default function QcmCalcPage() {
           {loading ? (
             <div className="text-center py-16">
               <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-              <p className="text-slate-500 dark:text-slate-400">Chargement...</p>
+              <p className="text-slate-500 dark:text-slate-400">
+                Chargement...
+              </p>
             </div>
           ) : exams.length === 0 ? (
             <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/5">
               <p className="text-5xl mb-4">📝</p>
-              <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">Aucun examen</p>
-              <p className="text-slate-500 dark:text-slate-400">Créez votre premier examen pour commencer.</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                Aucun examen
+              </p>
+              <p className="text-slate-500 dark:text-slate-400">
+                Créez votre premier examen pour commencer.
+              </p>
             </div>
           ) : (
-            exams.map(exam => (
-              <div key={exam.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-5 hover:shadow-lg transition-all group">
+            exams.map((exam) => (
+              <div
+                key={exam.id}
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-white/5 p-5 hover:shadow-lg transition-all group"
+              >
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate">{exam.name}</h3>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate">
+                        {exam.name}
+                      </h3>
                       <span className="px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 uppercase whitespace-nowrap">
                         {TEST_TYPE_LABELS[exam.test_type]}
                       </span>
@@ -723,6 +1154,9 @@ export default function QcmCalcPage() {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                       <span>📚 {exam.subject}</span>
+                      {exam.sub_discipline && (
+                        <span>📖 {exam.sub_discipline}</span>
+                      )}
                       <span>🎓 {exam.grade}</span>
                       <span>📅 {exam.year}</span>
                       <span>❓ {exam.num_questions} questions</span>
@@ -731,10 +1165,16 @@ export default function QcmCalcPage() {
                     </div>
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => handleEdit(exam)} className="px-4 py-2 text-sm font-bold bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 rounded-xl hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-all">
+                    <button
+                      onClick={() => handleEdit(exam)}
+                      className="px-4 py-2 text-sm font-bold bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 rounded-xl hover:bg-primary-100 dark:hover:bg-primary-900/40 transition-all"
+                    >
                       ✏️ Modifier
                     </button>
-                    <button onClick={() => handleDelete(exam.id)} className="px-4 py-2 text-sm font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-all">
+                    <button
+                      onClick={() => handleDelete(exam.id)}
+                      className="px-4 py-2 text-sm font-bold bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/40 transition-all"
+                    >
                       🗑️ Supprimer
                     </button>
                   </div>

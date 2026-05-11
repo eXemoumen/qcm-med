@@ -26,6 +26,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { supabase } from "@/lib/supabase";
 import {
+  PREDEFINED_MODULES,
+  PREDEFINED_SUBDISCIPLINES,
+  SPECIALITY_OPTIONS,
+  GRADE_TO_YEAR,
+  FILTER_GRADE_OPTIONS,
+} from "@/lib/predefined-modules";
+import {
   calculateQcmGrade,
   TEST_TYPE_LABELS,
   TEST_TYPE_DESCRIPTIONS,
@@ -40,6 +47,7 @@ interface QcmExam {
   id: string;
   name: string;
   subject: string;
+  sub_discipline: string | null;
   grade: string;
   year: string;
   session: string;
@@ -77,10 +85,14 @@ export default function QcmCalcScreen() {
   const [showPicker, setShowPicker] = useState(false);
 
   // Filters
+  const [filterSpeciality, setFilterSpeciality] = useState("");
+  const [filterGrade, setFilterGrade] = useState("");
   const [filterSubject, setFilterSubject] = useState("");
-  const [filterYear, setFilterYear] = useState("");
+  const [filterSubDiscipline, setFilterSubDiscipline] = useState("");
+  const [showSpecialityDropdown, setShowSpecialityDropdown] = useState(false);
+  const [showGradeDropdown, setShowGradeDropdown] = useState(false);
   const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
-  const [showYearDropdown, setShowYearDropdown] = useState(false);
+  const [showSubDisciplineDropdown, setShowSubDisciplineDropdown] = useState(false);
 
   // Load exams
   useEffect(() => {
@@ -100,23 +112,33 @@ export default function QcmCalcScreen() {
     setLoading(false);
   };
 
-  // Filter values
-  const subjects = useMemo(
-    () => [...new Set(exams.map((e) => e.subject))].sort(),
-    [exams]
-  );
-  const years = useMemo(
-    () => [...new Set(exams.map((e) => e.year))].sort().reverse(),
-    [exams]
-  );
+  // Cascading filter logic
+  const filterMappedYear = GRADE_TO_YEAR[filterGrade] || '';
+  const filterAvailableModules = useMemo(() => {
+    if (!filterMappedYear) return [];
+    return PREDEFINED_MODULES.filter(m => m.year === filterMappedYear);
+  }, [filterMappedYear]);
+
+  const filterSelectedModule = useMemo(() => {
+    return filterAvailableModules.find(m => m.name === filterSubject);
+  }, [filterAvailableModules, filterSubject]);
+
+  const filterAvailableSubDisciplines = useMemo(() => {
+    if (filterSelectedModule?.hasSubDisciplines && filterSelectedModule.name) {
+      return PREDEFINED_SUBDISCIPLINES[filterSelectedModule.name] || [];
+    }
+    return [];
+  }, [filterSelectedModule]);
 
   const filteredExams = useMemo(() => {
     return exams.filter((e) => {
+      if (filterSpeciality && e.speciality !== filterSpeciality) return false;
+      if (filterGrade && e.grade !== filterGrade) return false;
       if (filterSubject && e.subject !== filterSubject) return false;
-      if (filterYear && e.year !== filterYear) return false;
+      if (filterSubDiscipline && e.sub_discipline !== filterSubDiscipline) return false;
       return true;
     });
-  }, [exams, filterSubject, filterYear]);
+  }, [exams, filterSpeciality, filterGrade, filterSubject, filterSubDiscipline]);
 
   // Toggle answer — single-choice (radio) for QCSs, multi-select for QCM types
   const toggleAnswer = (qNum: number, label: string) => {
@@ -192,6 +214,84 @@ export default function QcmCalcScreen() {
   };
 
   // ── EXAM LIST VIEW ───────────────────────────────────────────
+  // Helper to reset cascading filters
+  const resetAllFilters = () => {
+    setFilterSpeciality("");
+    setFilterGrade("");
+    setFilterSubject("");
+    setFilterSubDiscipline("");
+  };
+
+  const hasActiveFilters = filterSpeciality || filterGrade || filterSubject || filterSubDiscipline;
+
+  // Reusable dropdown modal renderer
+  const renderDropdownModal = (
+    visible: boolean,
+    onClose: () => void,
+    title: string,
+    currentValue: string,
+    allLabel: string,
+    options: { label: string; value: string; prefix?: string }[],
+    onSelect: (value: string) => void,
+  ) => (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+      <Pressable
+        style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
+        onPress={onClose}
+      >
+        <View style={{
+          backgroundColor: colors.card,
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          paddingTop: 12,
+          paddingBottom: 32,
+          maxHeight: "70%",
+        }}>
+          <View style={{ width: 40, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
+          <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800", paddingHorizontal: 20, marginBottom: 12 }}>{title}</Text>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {/* "All" option */}
+            <Pressable
+              onPress={() => { onSelect(""); onClose(); }}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: 20,
+                paddingVertical: 14,
+                backgroundColor: !currentValue ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
+              }}
+            >
+              <Text style={{ color: !currentValue ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: !currentValue ? "700" : "500" }}>
+                {allLabel}
+              </Text>
+              {!currentValue && <Check size={18} color="#09b2ac" />}
+            </Pressable>
+            {options.map((opt) => (
+              <Pressable
+                key={opt.value}
+                onPress={() => { onSelect(opt.value); onClose(); }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingHorizontal: 20,
+                  paddingVertical: 14,
+                  backgroundColor: currentValue === opt.value ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
+                }}
+              >
+                <Text style={{ color: currentValue === opt.value ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: currentValue === opt.value ? "700" : "500", flex: 1 }} numberOfLines={2}>
+                  {opt.prefix ? `${opt.prefix} ` : ""}{opt.label}
+                </Text>
+                {currentValue === opt.value && <Check size={18} color="#09b2ac" />}
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+
   const renderExamList = () => (
     <View style={{ gap: 20 }}>
       {/* Filters */}
@@ -200,175 +300,152 @@ export default function QcmCalcScreen() {
           <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5 }}>
             Filtres
           </Text>
-          {(filterSubject || filterYear) && (
-            <Pressable onPress={() => { setFilterSubject(""); setFilterYear(""); }}>
-              <Text style={{ color: "#09b2ac", fontSize: 12, fontWeight: "700" }}>Réinitialiser</Text>
+          {hasActiveFilters && (
+            <Pressable onPress={resetAllFilters}>
+              <Text style={{ color: "#ef4444", fontSize: 12, fontWeight: "700" }}>✕ Réinitialiser</Text>
             </Pressable>
           )}
         </View>
-        <View style={{ flexDirection: isDesktop ? "row" : "column", gap: 10 }}>
+        <View style={{ gap: 10 }}>
+          {/* Row 1: Spécialité + Année */}
+          <View style={{ flexDirection: isDesktop ? "row" : "column", gap: 10 }}>
+            {/* ── Spécialité Dropdown ── */}
+            <Pressable
+              onPress={() => setShowSpecialityDropdown(true)}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderWidth: 1,
+                borderColor: filterSpeciality ? "#09b2ac" : colors.border,
+              }}
+            >
+              <Text style={{ color: filterSpeciality ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
+                {filterSpeciality || "Toutes les spécialités"}
+              </Text>
+              <ChevronDown size={16} color={filterSpeciality ? "#09b2ac" : colors.textMuted} />
+            </Pressable>
 
-          {/* ── Subject Dropdown ── */}
-          <Pressable
-            onPress={() => setShowSubjectDropdown(true)}
-            style={{
-              flex: 1,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
-              borderRadius: 12,
-              paddingHorizontal: 14,
-              paddingVertical: 12,
-              borderWidth: 1,
-              borderColor: filterSubject ? "#09b2ac" : colors.border,
-            }}
-          >
-            <Text style={{ color: filterSubject ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
-              {filterSubject || "Toutes matières"}
-            </Text>
-            <ChevronDown size={16} color={filterSubject ? "#09b2ac" : colors.textMuted} />
-          </Pressable>
+            {/* ── Année Dropdown ── */}
+            <Pressable
+              onPress={() => setShowGradeDropdown(true)}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderWidth: 1,
+                borderColor: filterGrade ? "#09b2ac" : colors.border,
+              }}
+            >
+              <Text style={{ color: filterGrade ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
+                {filterGrade || "Toutes les années"}
+              </Text>
+              <ChevronDown size={16} color={filterGrade ? "#09b2ac" : colors.textMuted} />
+            </Pressable>
+          </View>
 
-          {/* ── Year Dropdown ── */}
-          <Pressable
-            onPress={() => setShowYearDropdown(true)}
-            style={{
-              flex: 1,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
-              borderRadius: 12,
-              paddingHorizontal: 14,
-              paddingVertical: 12,
-              borderWidth: 1,
-              borderColor: filterYear ? "#09b2ac" : colors.border,
-            }}
-          >
-            <Text style={{ color: filterYear ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
-              {filterYear || "Toutes années"}
-            </Text>
-            <ChevronDown size={16} color={filterYear ? "#09b2ac" : colors.textMuted} />
-          </Pressable>
+          {/* Row 2: Module + Sous-discipline */}
+          <View style={{ flexDirection: isDesktop ? "row" : "column", gap: 10 }}>
+            {/* ── Module Dropdown ── */}
+            <Pressable
+              onPress={() => filterGrade ? setShowSubjectDropdown(true) : null}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderWidth: 1,
+                borderColor: filterSubject ? "#09b2ac" : colors.border,
+                opacity: filterGrade ? 1 : 0.5,
+              }}
+            >
+              <Text style={{ color: filterSubject ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }} numberOfLines={1}>
+                {filterSubject || (filterGrade ? "Tous les modules" : "Sélectionner une année")}
+              </Text>
+              <ChevronDown size={16} color={filterSubject ? "#09b2ac" : colors.textMuted} />
+            </Pressable>
+
+            {/* ── Sous-discipline Dropdown ── */}
+            <Pressable
+              onPress={() => filterAvailableSubDisciplines.length > 0 ? setShowSubDisciplineDropdown(true) : null}
+              style={{
+                flex: 1,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderWidth: 1,
+                borderColor: filterSubDiscipline ? "#09b2ac" : colors.border,
+                opacity: filterAvailableSubDisciplines.length > 0 ? 1 : 0.5,
+              }}
+            >
+              <Text style={{ color: filterSubDiscipline ? "#09b2ac" : colors.textMuted, fontSize: 13, fontWeight: "700", flex: 1 }}>
+                {filterSubDiscipline || (filterAvailableSubDisciplines.length > 0 ? "Toutes sous-disciplines" : "N/A")}
+              </Text>
+              <ChevronDown size={16} color={filterSubDiscipline ? "#09b2ac" : colors.textMuted} />
+            </Pressable>
+          </View>
         </View>
       </View>
 
-      {/* ── Subject Dropdown Modal ── */}
-      <Modal transparent animationType="fade" visible={showSubjectDropdown} onRequestClose={() => setShowSubjectDropdown(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
-          onPress={() => setShowSubjectDropdown(false)}
-        >
-          <View style={{
-            backgroundColor: colors.card,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            paddingTop: 12,
-            paddingBottom: 32,
-            maxHeight: "70%",
-          }}>
-            {/* Handle bar */}
-            <View style={{ width: 40, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800", paddingHorizontal: 20, marginBottom: 12 }}>Matière</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* "All" option */}
-              <Pressable
-                onPress={() => { setFilterSubject(""); setShowSubjectDropdown(false); }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  paddingHorizontal: 20,
-                  paddingVertical: 14,
-                  backgroundColor: !filterSubject ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
-                }}
-              >
-                <Text style={{ color: !filterSubject ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: !filterSubject ? "700" : "500" }}>
-                  Toutes matières
-                </Text>
-                {!filterSubject && <Check size={18} color="#09b2ac" />}
-              </Pressable>
-              {subjects.map((s) => (
-                <Pressable
-                  key={s}
-                  onPress={() => { setFilterSubject(s); setShowSubjectDropdown(false); }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    paddingHorizontal: 20,
-                    paddingVertical: 14,
-                    backgroundColor: filterSubject === s ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
-                  }}
-                >
-                  <Text style={{ color: filterSubject === s ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: filterSubject === s ? "700" : "500" }}>
-                    {s}
-                  </Text>
-                  {filterSubject === s && <Check size={18} color="#09b2ac" />}
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* ── Year Dropdown Modal ── */}
-      <Modal transparent animationType="fade" visible={showYearDropdown} onRequestClose={() => setShowYearDropdown(false)}>
-        <Pressable
-          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }}
-          onPress={() => setShowYearDropdown(false)}
-        >
-          <View style={{
-            backgroundColor: colors.card,
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            paddingTop: 12,
-            paddingBottom: 32,
-            maxHeight: "70%",
-          }}>
-            <View style={{ width: 40, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: "center", marginBottom: 16 }} />
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: "800", paddingHorizontal: 20, marginBottom: 12 }}>Année</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Pressable
-                onPress={() => { setFilterYear(""); setShowYearDropdown(false); }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  paddingHorizontal: 20,
-                  paddingVertical: 14,
-                  backgroundColor: !filterYear ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
-                }}
-              >
-                <Text style={{ color: !filterYear ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: !filterYear ? "700" : "500" }}>
-                  Toutes années
-                </Text>
-                {!filterYear && <Check size={18} color="#09b2ac" />}
-              </Pressable>
-              {years.map((y) => (
-                <Pressable
-                  key={y}
-                  onPress={() => { setFilterYear(y); setShowYearDropdown(false); }}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    paddingHorizontal: 20,
-                    paddingVertical: 14,
-                    backgroundColor: filterYear === y ? (isDark ? "rgba(9,178,172,0.12)" : "rgba(9,178,172,0.07)") : "transparent",
-                  }}
-                >
-                  <Text style={{ color: filterYear === y ? "#09b2ac" : colors.text, fontSize: 15, fontWeight: filterYear === y ? "700" : "500" }}>
-                    {y}
-                  </Text>
-                  {filterYear === y && <Check size={18} color="#09b2ac" />}
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
+      {/* ── Dropdown Modals ── */}
+      {renderDropdownModal(
+        showSpecialityDropdown,
+        () => setShowSpecialityDropdown(false),
+        "Spécialité",
+        filterSpeciality,
+        "Toutes les spécialités",
+        SPECIALITY_OPTIONS.map(s => ({ label: s, value: s })),
+        (v) => { setFilterSpeciality(v); setFilterGrade(""); setFilterSubject(""); setFilterSubDiscipline(""); },
+      )}
+      {renderDropdownModal(
+        showGradeDropdown,
+        () => setShowGradeDropdown(false),
+        "Année",
+        filterGrade,
+        "Toutes les années",
+        FILTER_GRADE_OPTIONS.map(g => ({ label: g, value: g })),
+        (v) => { setFilterGrade(v); setFilterSubject(""); setFilterSubDiscipline(""); },
+      )}
+      {renderDropdownModal(
+        showSubjectDropdown,
+        () => setShowSubjectDropdown(false),
+        "Unité / Module",
+        filterSubject,
+        "Tous les modules",
+        filterAvailableModules.map(m => ({
+          label: m.name,
+          value: m.name,
+          prefix: m.type === 'uei' ? '🟢' : m.type === 'standalone' ? '🟡' : '🔵',
+        })),
+        (v) => { setFilterSubject(v); setFilterSubDiscipline(""); },
+      )}
+      {renderDropdownModal(
+        showSubDisciplineDropdown,
+        () => setShowSubDisciplineDropdown(false),
+        "Sous-discipline",
+        filterSubDiscipline,
+        "Toutes",
+        filterAvailableSubDisciplines.map(s => ({ label: s, value: s })),
+        (v) => { setFilterSubDiscipline(v); },
+      )}
 
       {/* Exam cards */}
       {loading ? (
@@ -430,6 +507,22 @@ export default function QcmCalcScreen() {
 
     const answeredCount = Object.values(userAnswers).filter((a) => a.length > 0).length;
     const progress = selectedExam.num_questions > 0 ? answeredCount / selectedExam.num_questions : 0;
+
+    const getCorrectCount = (from: number, to: number) => {
+      return Array.from({ length: to - from + 1 }, (_, i) => i + from).filter((qNum) => {
+        const correct = selectedExam.correct_answers[String(qNum)];
+        const userAns = userAnswers[qNum] || [];
+        if (!correct) return false;
+        const sets = Array.isArray(correct[0]) ? correct as string[][] : [correct as string[]];
+        return sets.some((set) => {
+          const s = [...set].sort(); const u = [...userAns].sort();
+          return s.length === u.length && s.every((v, i) => v === u[i]);
+        });
+      }).length;
+    };
+
+    const totalCorrectCount = getCorrectCount(1, selectedExam.num_questions);
+    const totalIncorrectCount = selectedExam.num_questions - totalCorrectCount;
 
     return (
       <View style={{ gap: 16 }}>
@@ -498,21 +591,16 @@ export default function QcmCalcScreen() {
                 }}
               >
                 <View style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 10,
-                  backgroundColor: selected.length > 0
-                    ? (isDark ? "rgba(9,178,172,0.15)" : "rgba(9,178,172,0.1)")
-                    : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)"),
-                  alignItems: "center",
+                  width: 32,
+                  alignItems: "flex-end",
                   justifyContent: "center",
                 }}>
                   <Text style={{
-                    color: selected.length > 0 ? "#09b2ac" : colors.textMuted,
-                    fontSize: 13,
-                    fontWeight: "800",
+                    color: selected.length > 0 ? "#09b2ac" : colors.text,
+                    fontSize: 15,
+                    fontWeight: "700",
                   }}>
-                    {qNum}
+                    {qNum}.
                   </Text>
                 </View>
                 <View style={{ flex: 1, flexDirection: "row", gap: 6 }}>
@@ -652,18 +740,23 @@ export default function QcmCalcScreen() {
                       <Text style={{ fontSize: 14, fontWeight: "600", color: colors.textMuted }}>/ 20</Text>
 
                       {/* Section stats */}
-                      <View style={{ flexDirection: "row", gap: 16, marginTop: 2 }}>
-                        <View style={{ alignItems: "center" }}>
-                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>Score</Text>
-                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
-                            {ss.totalScore}/{ss.countedQuestions}
+                      <View style={{ flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 2 }}>
+                        <View style={{
+                          flexDirection: "row", alignItems: "center", gap: 4,
+                          backgroundColor: "rgba(34,197,94,0.12)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16,
+                        }}>
+                          <Check size={12} color="#22c55e" />
+                          <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "800" }}>
+                            {getCorrectCount(ss.from, ss.to)} correctes
                           </Text>
                         </View>
-                        <View style={{ width: 1, backgroundColor: colors.border }} />
-                        <View style={{ alignItems: "center" }}>
-                          <Text style={{ color: colors.textMuted, fontSize: 10, fontWeight: "700" }}>Réponses correctes</Text>
-                          <Text style={{ color: colors.text, fontSize: 14, fontWeight: "800" }}>
-                            {Math.round(ss.totalScore)} / {ss.to - ss.from + 1}
+                        <View style={{
+                          flexDirection: "row", alignItems: "center", gap: 4,
+                          backgroundColor: "rgba(239,68,68,0.12)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 16,
+                        }}>
+                          <X size={12} color="#ef4444" />
+                          <Text style={{ color: "#ef4444", fontSize: 11, fontWeight: "800" }}>
+                            {(ss.to - ss.from + 1) - getCorrectCount(ss.from, ss.to)} incorrectes
                           </Text>
                         </View>
                       </View>
@@ -701,18 +794,23 @@ export default function QcmCalcScreen() {
                   {result.grade.toFixed(2)}
                 </Text>
                 <Text style={{ fontSize: 16, fontWeight: "600", color: colors.textMuted }}>/ 20</Text>
-                <View style={{ flexDirection: "row", gap: 20, marginTop: 4 }}>
-                  <View style={{ alignItems: "center" }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Score</Text>
-                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                      {result.totalScore}/{result.countedQuestions}
+                <View style={{ flexDirection: "row", gap: 10, justifyContent: "center", marginTop: 4 }}>
+                  <View style={{
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    backgroundColor: "rgba(34,197,94,0.12)", paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                  }}>
+                    <Check size={14} color="#22c55e" />
+                    <Text style={{ color: "#22c55e", fontSize: 13, fontWeight: "800" }}>
+                      {totalCorrectCount} correctes
                     </Text>
                   </View>
-                  <View style={{ width: 1, backgroundColor: colors.border }} />
-                  <View style={{ alignItems: "center" }}>
-                    <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "700" }}>Réponses correctes</Text>
-                    <Text style={{ color: colors.text, fontSize: 16, fontWeight: "800" }}>
-                      {Math.round(result.totalScore)} / {selectedExam.num_questions}
+                  <View style={{
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    backgroundColor: "rgba(239,68,68,0.12)", paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                  }}>
+                    <X size={14} color="#ef4444" />
+                    <Text style={{ color: "#ef4444", fontSize: 13, fontWeight: "800" }}>
+                      {totalIncorrectCount} incorrectes
                     </Text>
                   </View>
                 </View>
@@ -745,46 +843,6 @@ export default function QcmCalcScreen() {
           {/* ── Per-question breakdown ── */}
           {selectedExam && (
             <View style={{ width: "100%", gap: 8, marginTop: 4 }}>
-              {/* Summary pills */}
-              <View style={{ flexDirection: "row", gap: 10, justifyContent: "center", marginBottom: 4 }}>
-                <View style={{
-                  flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: "rgba(34,197,94,0.12)", paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-                }}>
-                  <Check size={14} color="#22c55e" />
-                  <Text style={{ color: "#22c55e", fontSize: 13, fontWeight: "800" }}>
-                    {Array.from({ length: selectedExam.num_questions }, (_, i) => i + 1).filter((qNum) => {
-                      const correct = selectedExam.correct_answers[String(qNum)];
-                      const userAns = userAnswers[qNum] || [];
-                      if (!correct) return false;
-                      const sets = Array.isArray(correct[0]) ? correct as string[][] : [correct as string[]];
-                      return sets.some((set) => {
-                        const s = [...set].sort(); const u = [...userAns].sort();
-                        return s.length === u.length && s.every((v, i) => v === u[i]);
-                      });
-                    }).length} correctes
-                  </Text>
-                </View>
-                <View style={{
-                  flexDirection: "row", alignItems: "center", gap: 6,
-                  backgroundColor: "rgba(239,68,68,0.12)", paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
-                }}>
-                  <X size={14} color="#ef4444" />
-                  <Text style={{ color: "#ef4444", fontSize: 13, fontWeight: "800" }}>
-                    {Array.from({ length: selectedExam.num_questions }, (_, i) => i + 1).filter((qNum) => {
-                      const correct = selectedExam.correct_answers[String(qNum)];
-                      const userAns = userAnswers[qNum] || [];
-                      if (!correct) return false;
-                      const sets = Array.isArray(correct[0]) ? correct as string[][] : [correct as string[]];
-                      return !sets.some((set) => {
-                        const s = [...set].sort(); const u = [...userAns].sort();
-                        return s.length === u.length && s.every((v, i) => v === u[i]);
-                      });
-                    }).length} incorrectes
-                  </Text>
-                </View>
-              </View>
-
               {/* Divider */}
               <View style={{ height: 1, backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", marginVertical: 4 }} />
               <Text style={{ color: colors.textMuted, fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.5, textAlign: "center", marginBottom: 4 }}>
