@@ -178,7 +178,7 @@ export default function LandingWeb() {
           <a className={`font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`} href="#features">Fonctionnalités</a>
           <a className={`font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`} href="#tarifs">Tarifs</a>
           <a className={`font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`} href="#points">Points de vente</a>
-          <button onClick={goOutils} className={`bg-transparent border-0 p-0 cursor-pointer font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`}>OT</button>
+          <button onClick={goOutils} className={`bg-transparent border-0 p-0 cursor-pointer font-['Manrope'] font-bold text-sm tracking-wide hover:text-[#9941ff] transition-colors duration-300 ${isDarkSection ? 'text-white' : 'text-slate-700'}`}>Calcul</button>
         </div>
         
         <div className="hidden md:flex items-center gap-4">
@@ -202,7 +202,7 @@ export default function LandingWeb() {
             <a href="#features" onClick={() => setMobileMenuOpen(false)} className="font-['Manrope'] text-lg font-bold text-slate-800">Fonctionnalités</a>
             <a href="#tarifs" onClick={() => setMobileMenuOpen(false)} className="font-['Manrope'] text-lg font-bold text-slate-800">Tarifs</a>
             <a href="#points" onClick={() => setMobileMenuOpen(false)} className="font-['Manrope'] text-lg font-bold text-slate-800">Points de vente</a>
-            <button onClick={() => { setMobileMenuOpen(false); goOutils(); }} className="bg-transparent border-0 p-0 cursor-pointer text-left font-['Manrope'] text-lg font-bold text-slate-800">OT</button>
+            <button onClick={() => { setMobileMenuOpen(false); goOutils(); }} className="bg-transparent border-0 p-0 cursor-pointer text-left font-['Manrope'] text-lg font-bold text-slate-800">Calcul</button>
           </div>
           <div className="flex flex-col gap-3 pt-4 border-t border-slate-100">
             <button onClick={goAuth} className="w-full py-3 rounded-xl border border-slate-200 text-[#09b2ac] font-bold font-['Manrope']">Se connecter</button>
@@ -258,7 +258,7 @@ export default function LandingWeb() {
               </button>
               <button onClick={goOutils} className="w-full sm:w-auto border-2 border-[#9941ff]/25 text-[#2a0054] bg-white font-['Manrope'] font-bold text-lg px-10 py-5 rounded-[3rem] flex items-center justify-center gap-2 hover:bg-[#f8f0ff] transition-all shadow-lg shadow-[#9941ff]/10">
                 <Calculator size={20} />
-                OT
+                Calcul
               </button>
             </motion.div>
           </motion.div>

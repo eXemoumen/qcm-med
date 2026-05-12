@@ -44,6 +44,7 @@ export const PREDEFINED_MODULES: PredefinedModule[] = [
   // 3ème Année - Modules Autonomes
   { name: 'Anatomie pathologique', year: '3', type: 'standalone', hasSubDisciplines: false },
   { name: 'Pharmacologie', year: '3', type: 'standalone', hasSubDisciplines: false },
+  { name: 'Immunologie', year: '3', type: 'standalone', hasSubDisciplines: false },
   { name: 'Microbiologie', year: '3', type: 'standalone', hasSubDisciplines: false },
   { name: 'Parasitologie', year: '3', type: 'standalone', hasSubDisciplines: false },
 ];
@@ -65,7 +66,7 @@ export const PREDEFINED_SUBDISCIPLINES: Record<string, string[]> = {
 };
 
 // Speciality options
-export const SPECIALITY_OPTIONS = ['Médecine', 'Pharmaco', 'Médecine dentaire'];
+export const SPECIALITY_OPTIONS = ['Médecine', 'Pharmacie', 'Médecine dentaire'];
 
 // Grade to year mapping
 export const GRADE_TO_YEAR: Record<string, string> = {

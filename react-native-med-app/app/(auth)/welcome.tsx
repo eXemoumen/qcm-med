@@ -638,7 +638,7 @@ export default function WelcomeScreen() {
 
             <View style={{ marginTop: 16 }}>
               <AnimatedButton
-                title="OT"
+                title="Calcul"
                 onPress={() => router.push("/outils")}
                 variant="outline"
                 size="md"
@@ -978,7 +978,7 @@ export default function WelcomeScreen() {
             }}
           >
             <AnimatedButton
-              title="OT"
+              title="Calcul"
               onPress={() => router.push("/outils")}
               variant="outline"
               size="md"

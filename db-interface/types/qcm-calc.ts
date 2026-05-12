@@ -113,6 +113,6 @@ export const GRADE_OPTIONS = [
 
 export const SPECIALITY_OPTIONS = [
   'Médecine',
-  'Pharmaco',
+  'Pharmacie ',
   'Médecine dentaire',
 ];
