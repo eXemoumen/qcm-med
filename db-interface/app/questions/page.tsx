@@ -31,6 +31,9 @@ function QuestionsPageContent() {
   const [success, setSuccess] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formDataLoaded, setFormDataLoaded] = useState(false);
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
   const [formData, setFormData] = useState<QuestionFormData>({
     year: '1',
     moduleId: '',
@@ -208,7 +211,15 @@ function QuestionsPageContent() {
     fetchFilterCourses();
   }, [listFilters.year, listFilters.moduleId, listFilters.subDiscipline]);
 
+  // Check if any filter is active (don't load ALL questions unfiltered)
+  const hasActiveFilters = !!(listFilters.year || listFilters.moduleId || listFilters.subDiscipline || listFilters.cours || listFilters.examType || listFilters.examYear);
+
   const loadQuestions = useCallback(async () => {
+    // Don't fetch if no filters are set — prevents loading 3700+ questions and crashing the browser
+    if (!hasActiveFilters) {
+      setQuestions([]);
+      return;
+    }
     setLoading(true);
     setError(null);
     const result = await getQuestions({
@@ -221,13 +232,14 @@ function QuestionsPageContent() {
     });
     if (result.success) {
       setQuestions(result.data);
+      setCurrentPage(1); // Reset to page 1 on new fetch
     } else {
       setError(result.error || 'Failed to load questions');
     }
     setLoading(false);
-  }, [listFilters]);
+  }, [listFilters, hasActiveFilters]);
 
-  // Load questions on mount
+  // Load questions when filters change
   useEffect(() => {
     loadQuestions();
   }, [loadQuestions]);
@@ -300,10 +312,7 @@ function QuestionsPageContent() {
     return () => { cancelled = true; };
   }, [formData.year, formData.moduleId, formData.subDisciplineId, formData.examType, formData.examYear, editingId]);
 
-  // Reload when filters change
-  useEffect(() => {
-    loadQuestions();
-  }, [loadQuestions]);
+  // NOTE: Removed duplicate useEffect that also called loadQuestions — it was causing double-fetching
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -611,10 +620,17 @@ function QuestionsPageContent() {
     }
   };
 
-  // Group questions by module and exam type
+  // Paginate questions first, then group
+  const totalPages = Math.max(1, Math.ceil(questions.length / ITEMS_PER_PAGE));
+  const paginatedQuestions = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return questions.slice(start, start + ITEMS_PER_PAGE);
+  }, [questions, currentPage]);
+
+  // Group paginated questions by module and exam type
   const groupedQuestions = useMemo(() => {
     const groups: Record<string, any[]> = {};
-    questions.forEach(q => {
+    paginatedQuestions.forEach(q => {
       const key = `${q.year}-${q.module_name}-${q.exam_type}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(q);
@@ -624,7 +640,7 @@ function QuestionsPageContent() {
       groups[key].sort((a, b) => a.number - b.number);
     });
     return groups;
-  }, [questions]);
+  }, [paginatedQuestions]);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -1443,6 +1459,18 @@ function QuestionsPageContent() {
                 Chargement du catalogue...
               </p>
             </div>
+          ) : !hasActiveFilters ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="w-16 h-16 bg-primary-50 dark:bg-primary-900/20 rounded-2xl flex items-center justify-center text-3xl mb-4">
+                🔍
+              </div>
+              <p className="text-sm font-bold text-slate-600 dark:text-slate-300 uppercase tracking-widest">
+                Sélectionnez un filtre pour afficher les questions
+              </p>
+              <p className="text-xs text-slate-400 dark:text-slate-600 mt-2 max-w-md">
+                Utilisez les filtres ci-dessus (Année, Module, etc.) pour charger les questions. Le chargement de toutes les questions sans filtre est désactivé pour des raisons de performance.
+              </p>
+            </div>
           ) : questions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <div className="w-16 h-16 bg-slate-50 dark:bg-slate-950 rounded-2xl flex items-center justify-center text-3xl mb-4 grayscale opacity-50">
@@ -1456,6 +1484,7 @@ function QuestionsPageContent() {
               </p>
             </div>
           ) : (
+            <>
             <div className="space-y-12">
               {Object.entries(groupedQuestions).map(([key, groupQuestions]) => {
                 const [year, moduleName, examType] = key.split("-");
@@ -1597,6 +1626,58 @@ function QuestionsPageContent() {
                 );
               })}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-8 mt-8 border-t border-slate-100 dark:border-white/5">
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                  Page {currentPage} / {totalPages} • {questions.length} questions au total
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setCurrentPage(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  >
+                    ← Précédent
+                  </button>
+                  {/* Show page numbers */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let page: number;
+                    if (totalPages <= 5) {
+                      page = i + 1;
+                    } else if (currentPage <= 3) {
+                      page = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      page = totalPages - 4 + i;
+                    } else {
+                      page = currentPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => { setCurrentPage(page); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                        className={`w-9 h-9 rounded-xl text-xs font-black transition-all ${
+                          page === currentPage
+                            ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/20'
+                            : 'bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => { setCurrentPage(p => Math.min(totalPages, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  >
+                    Suivant →
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>
