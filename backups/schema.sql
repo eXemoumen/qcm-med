@@ -511,7 +511,7 @@ ALTER FUNCTION "public"."delete_plan_safe"("plan_id" "uuid") OWNER TO "postgres"
 
 CREATE OR REPLACE FUNCTION "public"."enforce_max_devices"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    SET "search_path" TO 'public'
     AS $$
 DECLARE
   physical_device_count INTEGER;
@@ -936,7 +936,7 @@ ALTER FUNCTION "public"."is_admin_or_higher"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."is_manager_or_higher"() RETURNS boolean
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    SET "search_path" TO 'public'
     AS $$
 BEGIN
   RETURN EXISTS (
@@ -951,6 +951,7 @@ ALTER FUNCTION "public"."is_manager_or_higher"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."is_owner"() RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
 BEGIN
   RETURN EXISTS (
@@ -965,7 +966,7 @@ ALTER FUNCTION "public"."is_owner"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."is_paid_user"() RETURNS boolean
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    SET "search_path" TO 'public'
     AS $$
 BEGIN
   RETURN EXISTS (
@@ -977,6 +978,45 @@ $$;
 
 
 ALTER FUNCTION "public"."is_paid_user"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."prevent_role_escalation"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- Service role (supabaseAdmin) bypasses this check (auth.uid() is NULL)
+  IF auth.uid() IS NOT NULL THEN
+    -- If user is changing their OWN record
+    IF NEW.id = auth.uid() THEN
+      -- Block changes to sensitive fields unless user is admin/owner
+      IF NOT EXISTS (
+        SELECT 1 FROM public.users 
+        WHERE id = auth.uid() AND role IN ('owner', 'admin')
+      ) THEN
+        -- Force sensitive fields to remain unchanged
+        IF NEW.role IS DISTINCT FROM OLD.role THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own role';
+        END IF;
+        IF NEW.is_paid IS DISTINCT FROM OLD.is_paid THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own payment status';
+        END IF;
+        IF NEW.is_reviewer IS DISTINCT FROM OLD.is_reviewer THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own reviewer status';
+        END IF;
+        IF NEW.subscription_expires_at IS DISTINCT FROM OLD.subscription_expires_at THEN
+          RAISE EXCEPTION 'Permission denied: cannot change own subscription';
+        END IF;
+      END IF;
+    END IF;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."prevent_role_escalation"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text" DEFAULT NULL::"text", "p_payment_method" "text" DEFAULT NULL::"text", "p_webhook_payload" "jsonb" DEFAULT NULL::"jsonb") RETURNS "jsonb"
@@ -1109,7 +1149,7 @@ ALTER FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") OWNER
 
 CREATE OR REPLACE FUNCTION "public"."search_knowledge_base"("query_embedding" "extensions"."vector", "match_threshold" double precision DEFAULT 0.5, "match_count" integer DEFAULT 5, "filter_category" "text" DEFAULT NULL::"text") RETURNS TABLE("id" "uuid", "title" "text", "content" "text", "category" "text", "similarity" double precision)
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    SET "search_path" TO 'public', 'extensions'
     AS $$
 BEGIN
   RETURN QUERY
@@ -1210,7 +1250,7 @@ ALTER FUNCTION "public"."update_caisse_transaction_updated_at"() OWNER TO "postg
 
 CREATE OR REPLACE FUNCTION "public"."update_session_on_message"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO ''
+    SET "search_path" TO 'public'
     AS $$
 BEGIN
   UPDATE public.chat_sessions
@@ -1931,9 +1971,10 @@ CREATE TABLE IF NOT EXISTS "public"."qcm_exams" (
     "updated_at" timestamp with time zone DEFAULT "now"(),
     "created_at" timestamp with time zone DEFAULT "now"(),
     "sections" "jsonb" DEFAULT '[]'::"jsonb",
+    "sub_discipline" "text",
     CONSTRAINT "qcm_exams_exam_type_check" CHECK (("exam_type" = ANY (ARRAY['Théorique'::"text", 'Clinique'::"text"]))),
     CONSTRAINT "qcm_exams_num_questions_check" CHECK ((("num_questions" > 0) AND ("num_questions" <= 200))),
-    CONSTRAINT "qcm_exams_session_check" CHECK (("session" = ANY (ARRAY['Normal'::"text", 'Rattrapage'::"text"]))),
+    CONSTRAINT "qcm_exams_session_check" CHECK (("session" = ANY (ARRAY['EMD'::"text", 'Rattrapage'::"text"]))),
     CONSTRAINT "qcm_exams_test_type_check" CHECK (("test_type" = ANY (ARRAY['QCSs'::"text", 'allOrNothing'::"text", 'partiallyPositive'::"text", 'partiallyNegative'::"text"])))
 );
 
@@ -1942,6 +1983,10 @@ ALTER TABLE "public"."qcm_exams" OWNER TO "postgres";
 
 
 COMMENT ON COLUMN "public"."qcm_exams"."sections" IS 'Array of {type, from, to} objects defining théorique/clinique question ranges within a single exam';
+
+
+
+COMMENT ON COLUMN "public"."qcm_exams"."sub_discipline" IS 'Sub-discipline name for UEI modules (e.g., Anatomie, Histologie). Matches predefined sub-disciplines used in questions.';
 
 
 
@@ -2744,6 +2789,10 @@ CREATE OR REPLACE TRIGGER "trg_cascade_course_rename" BEFORE UPDATE ON "public".
 
 
 
+CREATE OR REPLACE TRIGGER "trg_prevent_role_escalation" BEFORE UPDATE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_role_escalation"();
+
+
+
 CREATE OR REPLACE TRIGGER "trigger_update_caisse_transaction_updated_at" BEFORE UPDATE ON "public"."caisse_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_caisse_transaction_updated_at"();
 
 
@@ -2966,6 +3015,10 @@ CREATE POLICY "Admins can delete resources" ON "public"."course_resources" FOR D
 
 
 CREATE POLICY "Admins can insert users" ON "public"."users" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_admin_or_higher"());
+
+
+
+CREATE POLICY "Admins can update users" ON "public"."users" FOR UPDATE USING ("public"."is_admin_or_higher"());
 
 
 
@@ -3215,7 +3268,17 @@ CREATE POLICY "Users can submit feedback" ON "public"."user_feedback" FOR INSERT
 
 
 
-CREATE POLICY "Users can update own profile or be admin" ON "public"."users" FOR UPDATE TO "authenticated" USING (((( SELECT "auth"."uid"() AS "uid") = "id") OR "public"."is_admin_or_higher"()));
+CREATE POLICY "Users can update own profile" ON "public"."users" FOR UPDATE USING (("auth"."uid"() = "id")) WITH CHECK ((("auth"."uid"() = "id") AND ("role" = ( SELECT "users_1"."role"
+   FROM "public"."users" "users_1"
+  WHERE ("users_1"."id" = "auth"."uid"()))) AND ("is_paid" = ( SELECT "users_1"."is_paid"
+   FROM "public"."users" "users_1"
+  WHERE ("users_1"."id" = "auth"."uid"()))) AND ("is_reviewer" = ( SELECT "users_1"."is_reviewer"
+   FROM "public"."users" "users_1"
+  WHERE ("users_1"."id" = "auth"."uid"()))) AND ("is_test" = ( SELECT "users_1"."is_test"
+   FROM "public"."users" "users_1"
+  WHERE ("users_1"."id" = "auth"."uid"()))) AND (NOT ("subscription_expires_at" IS DISTINCT FROM ( SELECT "users_1"."subscription_expires_at"
+   FROM "public"."users" "users_1"
+  WHERE ("users_1"."id" = "auth"."uid"()))))));
 
 
 
@@ -3994,14 +4057,14 @@ GRANT USAGE ON SCHEMA "public" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "anon";
+REVOKE ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "service_role";
+GRANT ALL ON FUNCTION "public"."activate_subscription"("p_user_id" "uuid", "p_key_code" "text", "p_is_registration" boolean) TO "anon";
 
 
 
-GRANT ALL ON FUNCTION "public"."cascade_course_rename"() TO "anon";
-GRANT ALL ON FUNCTION "public"."cascade_course_rename"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."cascade_course_rename"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."cascade_course_rename"() TO "service_role";
 
 
@@ -4012,9 +4075,10 @@ GRANT ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "
 
 
 
-GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text", "p_faculty" "text") TO "anon";
+REVOKE ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text", "p_faculty" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text", "p_faculty" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text", "p_faculty" "text") TO "service_role";
+GRANT ALL ON FUNCTION "public"."create_user_profile"("p_user_id" "uuid", "p_email" "text", "p_full_name" "text", "p_speciality" "text", "p_year_of_study" "text", "p_region" "text", "p_faculty" "text") TO "anon";
 
 
 
@@ -4024,104 +4088,103 @@ GRANT ALL ON TABLE "public"."subscription_plans" TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."delete_plan_safe"("plan_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."delete_plan_safe"("plan_id" "uuid") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."delete_plan_safe"("plan_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."delete_plan_safe"("plan_id" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."enforce_max_devices"() TO "anon";
-GRANT ALL ON FUNCTION "public"."enforce_max_devices"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."enforce_max_devices"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."enforce_max_devices"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_admin_contribution_details"("admin_user_id" "uuid", "start_date" timestamp without time zone, "end_date" timestamp without time zone) TO "anon";
-GRANT ALL ON FUNCTION "public"."get_admin_contribution_details"("admin_user_id" "uuid", "start_date" timestamp without time zone, "end_date" timestamp without time zone) TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."get_admin_contribution_details"("admin_user_id" "uuid", "start_date" timestamp without time zone, "end_date" timestamp without time zone) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_admin_contribution_details"("admin_user_id" "uuid", "start_date" timestamp without time zone, "end_date" timestamp without time zone) TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_admin_contributions_by_period"("start_date" timestamp without time zone, "end_date" timestamp without time zone) TO "anon";
-GRANT ALL ON FUNCTION "public"."get_admin_contributions_by_period"("start_date" timestamp without time zone, "end_date" timestamp without time zone) TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."get_admin_contributions_by_period"("start_date" timestamp without time zone, "end_date" timestamp without time zone) FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_admin_contributions_by_period"("start_date" timestamp without time zone, "end_date" timestamp without time zone) TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_admin_payable_stats"() TO "anon";
-GRANT ALL ON FUNCTION "public"."get_admin_payable_stats"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."get_admin_payable_stats"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_admin_payable_stats"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_all_cours_counts"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."get_all_cours_counts"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_all_cours_counts"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_all_cours_counts"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_all_module_question_counts"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."get_all_module_question_counts"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_all_module_question_counts"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_all_module_question_counts"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_cours_with_counts"("p_module_name" "text") TO "anon";
+REVOKE ALL ON FUNCTION "public"."get_cours_with_counts"("p_module_name" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_cours_with_counts"("p_module_name" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_cours_with_counts"("p_module_name" "text") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_exam_types_with_counts"("p_module_name" "text", "p_year" "public"."year_level") TO "anon";
+REVOKE ALL ON FUNCTION "public"."get_exam_types_with_counts"("p_module_name" "text", "p_year" "public"."year_level") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_exam_types_with_counts"("p_module_name" "text", "p_year" "public"."year_level") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_exam_types_with_counts"("p_module_name" "text", "p_year" "public"."year_level") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."get_modules_with_question_counts"("p_year" "public"."year_level") TO "anon";
+REVOKE ALL ON FUNCTION "public"."get_modules_with_question_counts"("p_year" "public"."year_level") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_modules_with_question_counts"("p_year" "public"."year_level") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_modules_with_question_counts"("p_year" "public"."year_level") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."has_active_subscription"("p_user_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."has_active_subscription"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."has_active_subscription"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."has_active_subscription"("p_user_id" "uuid") TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."is_admin_or_higher"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_admin_or_higher"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_admin_or_higher"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_admin_or_higher"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."is_manager_or_higher"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_manager_or_higher"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_manager_or_higher"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_manager_or_higher"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."is_owner"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_owner"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_owner"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_owner"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."is_paid_user"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_paid_user"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_paid_user"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_paid_user"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text", "p_payment_method" "text", "p_webhook_payload" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text", "p_payment_method" "text", "p_webhook_payload" "jsonb") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."prevent_role_escalation"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."prevent_role_escalation"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text", "p_payment_method" "text", "p_webhook_payload" "jsonb") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text", "p_payment_method" "text", "p_webhook_payload" "jsonb") TO "service_role";
 
 
@@ -4129,14 +4192,14 @@ GRANT ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "tex
 REVOKE ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") TO "service_role";
+GRANT ALL ON FUNCTION "public"."rollback_failed_registration"("p_user_id" "uuid") TO "anon";
 
 
 
 
 
 
-GRANT ALL ON FUNCTION "public"."toggle_plan_active"("plan_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."toggle_plan_active"("plan_id" "uuid") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."toggle_plan_active"("plan_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."toggle_plan_active"("plan_id" "uuid") TO "service_role";
 
 
@@ -4147,8 +4210,7 @@ GRANT ALL ON FUNCTION "public"."update_caisse_transaction_updated_at"() TO "serv
 
 
 
-GRANT ALL ON FUNCTION "public"."update_session_on_message"() TO "anon";
-GRANT ALL ON FUNCTION "public"."update_session_on_message"() TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."update_session_on_message"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."update_session_on_message"() TO "service_role";
 
 
@@ -4159,9 +4221,10 @@ GRANT ALL ON FUNCTION "public"."update_updated_at_column"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."validate_activation_key"("p_key_code" "text") TO "anon";
+REVOKE ALL ON FUNCTION "public"."validate_activation_key"("p_key_code" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."validate_activation_key"("p_key_code" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."validate_activation_key"("p_key_code" "text") TO "service_role";
+GRANT ALL ON FUNCTION "public"."validate_activation_key"("p_key_code" "text") TO "anon";
 
 
 
