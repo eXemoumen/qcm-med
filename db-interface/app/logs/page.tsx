@@ -164,34 +164,8 @@ export default function LogsPage() {
     }
   }, [supabaseService, getAuthHeader]);
 
-  // Generate test logs
-  const handleGenerateTestLogs = async () => {
-    setIsGenerating(true);
-    setGenerateMsg(null);
-    try {
-      const headers = await getAuthHeader();
-      const response = await fetch("/api/logs/test", {
-        method: "POST",
-        headers,
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setGenerateMsg(`✅ ${data.message}`);
-        // Refresh logs and stats
-        setTimeout(() => {
-          fetchLogs();
-          fetchStats();
-        }, 500);
-      } else {
-        setGenerateMsg(`❌ ${data.error}`);
-      }
-    } catch {
-      setGenerateMsg("❌ Erreur réseau");
-    } finally {
-      setIsGenerating(false);
-      setTimeout(() => setGenerateMsg(null), 4000);
-    }
-  };
+
+  
 
   useEffect(() => {
     if (activeTab === "app") {
@@ -258,15 +232,7 @@ export default function LogsPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {activeTab === "app" && (
-            <button
-              onClick={handleGenerateTestLogs}
-              disabled={isGenerating}
-              className="px-4 py-2 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-500/20 hover:bg-emerald-500/20 transition-all text-sm font-medium disabled:opacity-50"
-            >
-              {isGenerating ? "⏳ Génération..." : "🧪 Test Logs"}
-            </button>
-          )}
+
 
           <button
             onClick={activeTab === "app" ? fetchLogs : fetchSupabaseLogs}
@@ -430,13 +396,8 @@ export default function LogsPage() {
                     ? "Essayez de modifier vos filtres"
                     : "Les logs apparaîtront ici automatiquement"}
                 </p>
-                <button
-                  onClick={handleGenerateTestLogs}
-                  disabled={isGenerating}
-                  className="px-5 py-2.5 bg-primary text-white rounded-xl font-medium hover:bg-primary/90 transition-all text-sm disabled:opacity-50"
-                >
-                  🧪 Générer des logs de test
-                </button>
+                
+          
               </div>
             ) : (
               <div className="divide-y divide-theme">

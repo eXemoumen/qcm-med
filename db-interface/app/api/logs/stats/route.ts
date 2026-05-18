@@ -1,9 +1,12 @@
 /**
  * GET /api/logs/stats — Fetch stats (level counts) for the logs dashboard
- * Requires authenticated admin/owner
+ * Uses a single aggregated SQL query instead of N separate count queries.
+ * Requires authenticated admin/owner.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+
+const ALL_LEVELS = ['info', 'warn', 'error', 'fatal'] as const;
 
 export async function GET(request: NextRequest) {
   try {
@@ -30,17 +33,35 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Count per level using separate queries
-    const levels = ['info', 'warn', 'error', 'fatal'] as const;
+    // Single aggregated query — GROUP BY level in one round-trip
+    const { data: rows, error } = await supabaseAdmin.rpc('get_log_stats');
+
+    // Initialize all levels to 0
     const counts: Record<string, number> = {};
+    for (const level of ALL_LEVELS) {
+      counts[level] = 0;
+    }
 
-    for (const level of levels) {
-      const { count } = await supabaseAdmin
-        .from('app_logs')
-        .select('*', { count: 'exact', head: true })
-        .eq('level', level);
+    if (!error && rows) {
+      for (const row of rows as { level: string; count: number }[]) {
+        if (row.level in counts) {
+          counts[row.level] = Number(row.count);
+        }
+      }
+    } else if (error) {
+      // Fallback: if the RPC doesn't exist yet, use a single raw count
+      console.warn('[api/logs/stats] RPC get_log_stats failed, falling back:', error.message);
 
-      counts[level] = count ?? 0;
+      // Graceful degradation — single count per level via Promise.all
+      await Promise.all(
+        ALL_LEVELS.map(async (level) => {
+          const { count } = await supabaseAdmin
+            .from('app_logs')
+            .select('*', { count: 'exact', head: true })
+            .eq('level', level);
+          counts[level] = count ?? 0;
+        })
+      );
     }
 
     return NextResponse.json({

@@ -4,19 +4,55 @@
  *
  * POST /api/logs
  * Body: { level, source, message, metadata?, userId? }
+ *
+ * Security:
+ * - IP-based rate limiting (100 req/min per IP)
+ * - Payload shape & size validation
+ * - Field truncation with dev warnings
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { checkRateLimit } from '@/lib/rate-limiter';
 
 const VALID_LEVELS = ['info', 'warn', 'error', 'fatal'] as const;
 
+/** Max allowed metadata JSON size (10 KB) */
+const MAX_METADATA_SIZE = 10_000;
+
+/**
+ * Extract client IP from request headers (resilient to missing headers).
+ */
+function getClientIp(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    // x-forwarded-for can be comma-separated; take the first (original client)
+    return forwarded.split(',')[0].trim();
+  }
+  // Fallback — Next.js sometimes provides ip on the request object
+  return (request as unknown as { ip?: string }).ip ?? 'unknown';
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // --- Rate limiting (early, before body parsing) ---
+    const ip = getClientIp(request);
+    const { allowed, remaining } = checkRateLimit(ip, 100, 60_000);
+
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Too many requests' },
+        {
+          status: 429,
+          headers: { 'Retry-After': '60', 'X-RateLimit-Remaining': '0' },
+        }
+      );
+    }
+
     const body = await request.json();
+    const { level, metadata, userId } = body;
+    let { source, message } = body;
 
-    const { level, source, message, metadata, userId } = body;
-
-    // Basic validation
+    // --- Payload validation ---
     if (!level || !VALID_LEVELS.includes(level)) {
       return NextResponse.json(
         { error: 'Invalid or missing log level' },
@@ -38,11 +74,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert the log entry
+    // Validate metadata size to prevent oversized payloads
+    if (metadata !== undefined && metadata !== null) {
+      if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+        return NextResponse.json(
+          { error: 'metadata must be a JSON object' },
+          { status: 400 }
+        );
+      }
+      const metaSize = JSON.stringify(metadata).length;
+      if (metaSize > MAX_METADATA_SIZE) {
+        return NextResponse.json(
+          { error: `metadata exceeds max size (${MAX_METADATA_SIZE} chars)` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate userId shape if provided
+    if (userId !== undefined && userId !== null && typeof userId !== 'string') {
+      return NextResponse.json(
+        { error: 'userId must be a string' },
+        { status: 400 }
+      );
+    }
+
+    // --- Field truncation with warnings ---
+    if (source.length > 255) {
+      console.warn(
+        `[api/logs] Truncating 'source': original=${source.length} → 255 (ip=${ip}, ts=${new Date().toISOString()})`
+      );
+      source = source.slice(0, 255);
+    }
+
+    if (message.length > 2000) {
+      console.warn(
+        `[api/logs] Truncating 'message': original=${message.length} → 2000 (ip=${ip}, ts=${new Date().toISOString()})`
+      );
+      message = message.slice(0, 2000);
+    }
+
+    // --- Insert the log entry ---
     const { error } = await supabaseAdmin.from('app_logs').insert({
       level,
-      source: source.slice(0, 255), // Cap source length
-      message: message.slice(0, 2000), // Cap message length
+      source,
+      message,
       metadata: metadata ?? {},
       user_id: userId ?? null,
     });
@@ -55,9 +131,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true }, { status: 201 });
+    return NextResponse.json(
+      { success: true },
+      {
+        status: 201,
+        headers: { 'X-RateLimit-Remaining': String(remaining) },
+      }
+    );
   } catch {
-    // If parsing fails or anything else, silently accept
+    // If parsing fails or anything else, return 400
     return NextResponse.json(
       { error: 'Invalid request' },
       { status: 400 }

@@ -102,7 +102,19 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Small delay to let fire-and-forget complete
+    // KNOWN LIMITATION: This arbitrary delay is a best-effort wait for the
+    // fire-and-forget `logger.*` calls (which use `persistLogServer`) to
+    // complete their DB inserts. It is unreliable:
+    //   - May be too short under DB load or cold-start latency.
+    //   - Unnecessarily delays the response on fast paths.
+    //   - Does NOT guarantee all `testLogs` entries are persisted.
+    //
+    // Production alternatives:
+    //   1. Use a synchronous logging path (await each insert directly).
+    //   2. Have `persistLogServer` return a Promise and collect them via
+    //      `Promise.allSettled(promises)` before responding.
+    //   3. Return immediately and let the client poll `/api/logs/stats` to
+    //      confirm persistence.
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
     return NextResponse.json({
