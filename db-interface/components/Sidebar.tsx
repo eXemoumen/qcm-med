@@ -46,6 +46,7 @@ const ownerOnlyNavigation = [
   { name: "AI Analytics", href: "/ai-analytics", icon: "📊", badge: "AI" },
   { name: "Knowledge Base", href: "/knowledge", icon: "📚", badge: "RAG" },
   { name: "Paramètres", href: "/settings", icon: "⚙️", badge: "Owner" },
+  { name: "Logs", href: "/logs", icon: "📋", badge: "Owner" },
 ];
 
 export default function Sidebar() {

@@ -7,6 +7,7 @@ import { ZodError, ZodSchema, ZodIssue } from 'zod';
 import { supabase } from '@/lib/supabase';
 import { verifyAdminUser, verifyOwner } from '@/lib/supabase-admin';
 import { checkRateLimit, getRateLimitHeaders } from './rate-limit';
+import { logger } from '@/lib/logger';
 
 // ============ Error Handling ============
 
@@ -61,12 +62,26 @@ export function sanitizeError(error: unknown): string {
 
 /**
  * Create a standardized error response
+ * Automatically logs server errors (5xx) via the centralized logger
  */
 export function errorResponse(
   message: string,
   status: number,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  logContext?: { source?: string; userId?: string; metadata?: Record<string, unknown> }
 ): NextResponse {
+  // Auto-log 5xx server errors
+  if (status >= 500) {
+    logger.error(message, {
+      source: logContext?.source ?? 'api/unknown',
+      userId: logContext?.userId,
+      metadata: {
+        status,
+        ...logContext?.metadata,
+      },
+    });
+  }
+
   return NextResponse.json(
     { success: false, error: message },
     { status, headers }

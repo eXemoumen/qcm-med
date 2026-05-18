@@ -4,6 +4,7 @@ import "./globals.css";
 import AppLayout from "@/components/AppLayout";
 import SessionManager from "@/components/SessionManager";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Analytics } from "@vercel/analytics/react";
 
 const fontHeading = Manrope({
@@ -49,7 +50,9 @@ export default function RootLayout({
       <body className="bg-theme-main text-theme-main font-body">
         <ThemeProvider>
           <SessionManager />
-          <AppLayout>{children}</AppLayout>
+          <AppLayout>
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </AppLayout>
         </ThemeProvider>
         <Analytics />
       </body>

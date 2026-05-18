@@ -4,6 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { logger } from '@/lib/logger';
 import {
   validateBody,
   validateParam,
@@ -43,7 +44,10 @@ export async function GET(request: NextRequest) {
 
     return successResponse(questions, rateLimitResult.headers);
   } catch (error) {
-    console.error('Error fetching questions:', error);
+    logger.error('Failed to fetch questions', {
+      source: 'api/questions/GET',
+      metadata: { error: error instanceof Error ? error.message : String(error) },
+    });
     return errorResponse(sanitizeError(error), 500);
   }
 }
@@ -118,7 +122,11 @@ export async function POST(request: NextRequest) {
       rateLimitResult.headers
     );
   } catch (error) {
-    console.error('Error creating question:', error);
+    logger.error('Failed to create question', {
+      source: 'api/questions/POST',
+      userId: undefined, // authResult may not be in scope here
+      metadata: { error: error instanceof Error ? error.message : String(error) },
+    });
     return errorResponse(sanitizeError(error), 500);
   }
 }
@@ -191,7 +199,10 @@ export async function PUT(request: NextRequest) {
       rateLimitResult.headers
     );
   } catch (error) {
-    console.error('Error updating question:', error);
+    logger.error('Failed to update question', {
+      source: 'api/questions/PUT',
+      metadata: { error: error instanceof Error ? error.message : String(error) },
+    });
     return errorResponse(sanitizeError(error), 500);
   }
 }
@@ -236,7 +247,10 @@ export async function DELETE(request: NextRequest) {
           await supabaseAdmin.storage.from('question-images').remove([filePath]);
         }
       } catch (storageError) {
-        console.error('Error deleting image from storage:', storageError);
+        logger.warn('Failed to delete question image from storage', {
+          source: 'api/questions/DELETE',
+          metadata: { imageUrl: question.image_url, error: storageError instanceof Error ? storageError.message : String(storageError) },
+        });
         // Continue with question deletion even if image cleanup fails
       }
     }
@@ -251,7 +265,10 @@ export async function DELETE(request: NextRequest) {
 
     return successResponse({ deleted: true }, rateLimitResult.headers);
   } catch (error) {
-    console.error('Error deleting question:', error);
+    logger.error('Failed to delete question', {
+      source: 'api/questions/DELETE',
+      metadata: { error: error instanceof Error ? error.message : String(error) },
+    });
     return errorResponse(sanitizeError(error), 500);
   }
 }
