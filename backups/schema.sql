@@ -795,6 +795,19 @@ $$;
 ALTER FUNCTION "public"."get_exam_types_with_counts"("p_module_name" "text", "p_year" "public"."year_level") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_log_stats"() RETURNS TABLE("level" "text", "count" bigint)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT level::text, count(*)::bigint
+  FROM public.app_logs
+  GROUP BY level;
+$$;
+
+
+ALTER FUNCTION "public"."get_log_stats"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_module_details"("p_module_id" "uuid") RETURNS TABLE("module_data" "jsonb", "question_count" bigint, "exam_types_with_counts" "jsonb", "cours_with_counts" "jsonb", "sub_disciplines" "text"[])
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -1650,6 +1663,25 @@ CREATE TABLE IF NOT EXISTS "public"."app_config" (
 ALTER TABLE "public"."app_config" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."app_logs" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "level" "text" NOT NULL,
+    "source" "text" NOT NULL,
+    "message" "text" NOT NULL,
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb",
+    "user_id" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "app_logs_level_check" CHECK (("level" = ANY (ARRAY['info'::"text", 'warn'::"text", 'error'::"text", 'fatal'::"text"])))
+);
+
+
+ALTER TABLE "public"."app_logs" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."app_logs" IS 'Centralized application logs for error tracking and diagnostics. Auto-cleanup recommended after 30 days.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."caisse_checkouts" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "period_start" timestamp with time zone NOT NULL,
@@ -2189,6 +2221,11 @@ ALTER TABLE ONLY "public"."app_config"
 
 
 
+ALTER TABLE ONLY "public"."app_logs"
+    ADD CONSTRAINT "app_logs_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."caisse_checkouts"
     ADD CONSTRAINT "caisse_checkouts_pkey" PRIMARY KEY ("id");
 
@@ -2454,6 +2491,22 @@ CREATE INDEX "idx_answers_question" ON "public"."answers" USING "btree" ("questi
 
 
 CREATE INDEX "idx_app_config_updated_by" ON "public"."app_config" USING "btree" ("updated_by");
+
+
+
+CREATE INDEX "idx_app_logs_created_at" ON "public"."app_logs" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_app_logs_level" ON "public"."app_logs" USING "btree" ("level");
+
+
+
+CREATE INDEX "idx_app_logs_source" ON "public"."app_logs" USING "btree" ("source");
+
+
+
+CREATE INDEX "idx_app_logs_user_id" ON "public"."app_logs" USING "btree" ("user_id");
 
 
 
@@ -2882,6 +2935,11 @@ ALTER TABLE ONLY "public"."app_config"
 
 
 
+ALTER TABLE ONLY "public"."app_logs"
+    ADD CONSTRAINT "app_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."caisse_checkouts"
     ADD CONSTRAINT "caisse_checkouts_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
@@ -3015,6 +3073,12 @@ CREATE POLICY "Admins can delete resources" ON "public"."course_resources" FOR D
 
 
 CREATE POLICY "Admins can insert users" ON "public"."users" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_admin_or_higher"());
+
+
+
+CREATE POLICY "Admins can read logs" ON "public"."app_logs" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"]))))));
 
 
 
@@ -3244,6 +3308,14 @@ CREATE POLICY "Public view knowledge base" ON "public"."knowledge_base" FOR SELE
 
 
 
+CREATE POLICY "Service role can insert logs" ON "public"."app_logs" FOR INSERT TO "service_role" WITH CHECK (true);
+
+
+
+CREATE POLICY "Service role can read logs" ON "public"."app_logs" FOR SELECT TO "service_role" USING (true);
+
+
+
 CREATE POLICY "Update activation keys" ON "public"."activation_keys" FOR UPDATE TO "authenticated", "anon" USING ((("is_used" = false) OR ( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher"))) WITH CHECK ((( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher") OR (("is_used" = true) AND ("used_by" = ( SELECT "auth"."uid"() AS "uid")) AND ("used_at" IS NOT NULL))));
 
 
@@ -3406,6 +3478,9 @@ ALTER TABLE "public"."answers" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."app_config" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."app_logs" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."caisse_checkouts" ENABLE ROW LEVEL SECURITY;
@@ -4137,6 +4212,11 @@ GRANT ALL ON FUNCTION "public"."get_exam_types_with_counts"("p_module_name" "tex
 
 
 
+REVOKE ALL ON FUNCTION "public"."get_log_stats"() FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_log_stats"() TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_module_details"("p_module_id" "uuid") TO "service_role";
@@ -4330,6 +4410,12 @@ GRANT ALL ON TABLE "public"."answers" TO "service_role";
 GRANT ALL ON TABLE "public"."app_config" TO "anon";
 GRANT ALL ON TABLE "public"."app_config" TO "authenticated";
 GRANT ALL ON TABLE "public"."app_config" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."app_logs" TO "anon";
+GRANT ALL ON TABLE "public"."app_logs" TO "authenticated";
+GRANT ALL ON TABLE "public"."app_logs" TO "service_role";
 
 
 
