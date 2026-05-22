@@ -21,6 +21,8 @@ interface QuestionReport {
     question_text: string;
     module_name: string;
     exam_type: string;
+    unity_name: string | null;
+    sub_discipline: string | null;
   };
   user?: {
     email: string;
@@ -35,11 +37,11 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   other: 'Autre',
 };
 
-const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: 'En attente', color: 'text-yellow-700', bg: 'bg-yellow-100' },
-  reviewing: { label: 'En révision', color: 'text-blue-700', bg: 'bg-blue-100' },
-  resolved: { label: 'Résolu', color: 'text-green-700', bg: 'bg-green-100' },
-  dismissed: { label: 'Rejeté', color: 'text-slate-700', bg: 'bg-slate-100' },
+const STATUS_LABELS: Record<string, { label: string; color: string; bg: string; darkBg: string }> = {
+  pending: { label: 'En attente', color: 'text-yellow-700 dark:text-yellow-400', bg: 'bg-yellow-100', darkBg: 'dark:bg-yellow-900/30' },
+  reviewing: { label: 'En révision', color: 'text-blue-700 dark:text-blue-400', bg: 'bg-blue-100', darkBg: 'dark:bg-blue-900/30' },
+  resolved: { label: 'Résolu', color: 'text-green-700 dark:text-green-400', bg: 'bg-green-100', darkBg: 'dark:bg-green-900/30' },
+  dismissed: { label: 'Rejeté', color: 'text-slate-700 dark:text-slate-400', bg: 'bg-slate-100', darkBg: 'dark:bg-slate-800' },
 };
 
 export default function ReportsPage() {
@@ -48,9 +50,12 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [moduleFilter, setModuleFilter] = useState<string>('all');
+  const [unitFilter, setUnitFilter] = useState<string>('all');
   const [selectedReport, setSelectedReport] = useState<QuestionReport | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     loadReports();
@@ -65,27 +70,81 @@ export default function ReportsPage() {
         .from('question_reports')
         .select(`
           *,
-          question:questions(number, question_text, module_name, exam_type),
+          question:questions(number, question_text, module_name, exam_type, unity_name, sub_discipline),
           user:users!question_reports_user_id_fkey(email, full_name)
         `)
         .order('created_at', { ascending: false });
 
       if (fetchError) throw fetchError;
       setReports(data || []);
-    } catch (err: any) {
-      setError(err.message || 'Erreur lors du chargement des signalements');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erreur lors du chargement des signalements';
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
 
+  // ── Delete Report ──────────────────────────────────────────────────────
+  const deleteReport = async (id: string) => {
+    if (!confirm('Supprimer ce signalement ? Cette action est irréversible.')) return;
+    setDeleting(id);
+    try {
+      const { error: deleteError } = await supabase
+        .from('question_reports')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) throw deleteError;
+
+      setReports(prev => prev.filter(r => r.id !== id));
+      if (selectedReport?.id === id) {
+        setSelectedReport(null);
+        setAdminNotes('');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erreur lors de la suppression';
+      setError(message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // ── Derived filter options ─────────────────────────────────────────────
+  const availableModules = useMemo(() => {
+    const modules = new Set<string>();
+    reports.forEach(r => {
+      if (r.question?.module_name) modules.add(r.question.module_name);
+    });
+    return Array.from(modules).sort();
+  }, [reports]);
+
+  const availableSubDisciplines = useMemo(() => {
+    const subs = new Set<string>();
+    reports.forEach(r => {
+      // Only show sub-disciplines for the selected module (or all if no module filter)
+      if (moduleFilter !== 'all' && r.question?.module_name !== moduleFilter) return;
+      if (r.question?.sub_discipline) subs.add(r.question.sub_discipline);
+    });
+    return Array.from(subs).sort();
+  }, [reports, moduleFilter]);
+
+  // Reset unit filter when module changes
+  const handleModuleFilterChange = (value: string) => {
+    setModuleFilter(value);
+    setUnitFilter('all');
+  };
+
+  // ── Filtered reports ───────────────────────────────────────────────────
   const filteredReports = useMemo(() => {
     return reports.filter(report => {
       if (statusFilter !== 'all' && report.status !== statusFilter) return false;
       if (typeFilter !== 'all' && report.report_type !== typeFilter) return false;
+      if (moduleFilter !== 'all' && report.question?.module_name !== moduleFilter) return false;
+      if (unitFilter !== 'all' && report.question?.sub_discipline !== unitFilter) return false;
       return true;
     });
-  }, [reports, statusFilter, typeFilter]);
+  }, [reports, statusFilter, typeFilter, moduleFilter, unitFilter]);
 
   const stats = useMemo(() => ({
     total: reports.length,
@@ -115,8 +174,9 @@ export default function ReportsPage() {
       await loadReports();
       setSelectedReport(null);
       setAdminNotes('');
-    } catch (err: any) {
-      setError(err.message || 'Erreur lors de la mise à jour');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Erreur lors de la mise à jour';
+      setError(message);
     } finally {
       setUpdating(false);
     }
@@ -154,8 +214,8 @@ export default function ReportsPage() {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800">❌ {error}</p>
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <p className="text-red-800 dark:text-red-300">❌ {error}</p>
         </div>
       )}
 
@@ -207,7 +267,54 @@ export default function ReportsPage() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Module</label>
+            <select
+              value={moduleFilter}
+              onChange={(e) => handleModuleFilterChange(e.target.value)}
+              className="px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white"
+            >
+              <option value="all">Tous les modules</option>
+              {availableModules.map((mod) => (
+                <option key={mod} value={mod}>{mod}</option>
+              ))}
+            </select>
+          </div>
+          {availableSubDisciplines.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Sous-discipline</label>
+              <select
+                value={unitFilter}
+                onChange={(e) => setUnitFilter(e.target.value)}
+                className="px-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-white/10 rounded-xl text-slate-900 dark:text-white"
+              >
+                <option value="all">Toutes les sous-disciplines</option>
+                {availableSubDisciplines.map((sub) => (
+                  <option key={sub} value={sub}>{sub}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
+        {/* Active filter count */}
+        {(statusFilter !== 'all' || typeFilter !== 'all' || moduleFilter !== 'all' || unitFilter !== 'all') && (
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {filteredReports.length} résultat{filteredReports.length !== 1 ? 's' : ''} sur {reports.length}
+            </span>
+            <button
+              onClick={() => {
+                setStatusFilter('all');
+                setTypeFilter('all');
+                setModuleFilter('all');
+                setUnitFilter('all');
+              }}
+              className="text-xs text-primary-500 hover:text-primary-600 font-semibold"
+            >
+              Réinitialiser les filtres
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Reports List */}
@@ -232,7 +339,7 @@ export default function ReportsPage() {
                 <div className="flex-1">
                   {/* Header */}
                   <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS_LABELS[report.status].bg} ${STATUS_LABELS[report.status].color}`}>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS_LABELS[report.status].bg} ${STATUS_LABELS[report.status].darkBg} ${STATUS_LABELS[report.status].color}`}>
                       {STATUS_LABELS[report.status].label}
                     </span>
                     <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
@@ -246,9 +353,22 @@ export default function ReportsPage() {
                   {/* Question Info */}
                   {report.question && (
                     <div className="mb-3">
-                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">
-                        Q{report.question.number} • {report.question.module_name} • {report.question.exam_type}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                        <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 text-xs font-bold rounded-md">
+                          Q{report.question.number}
+                        </span>
+                        <span className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-md">
+                          📚 {report.question.module_name}
+                        </span>
+                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-medium rounded-md">
+                          {report.question.exam_type}
+                        </span>
+                        {report.question.sub_discipline && (
+                          <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium rounded-md">
+                            {report.question.sub_discipline}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
                         {report.question.question_text}
                       </p>
@@ -290,6 +410,13 @@ export default function ReportsPage() {
                       ✏️ Modifier
                     </a>
                   )}
+                  <button
+                    onClick={() => deleteReport(report.id)}
+                    disabled={deleting === report.id}
+                    className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-semibold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50"
+                  >
+                    {deleting === report.id ? '⏳' : '🗑️'} Supprimer
+                  </button>
                 </div>
               </div>
             </div>
@@ -299,8 +426,8 @@ export default function ReportsPage() {
 
       {/* Report Detail Modal */}
       {selectedReport && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) { setSelectedReport(null); setAdminNotes(''); } }}>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-white/10 shadow-2xl">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">Gérer le signalement</h2>
               <button
@@ -308,17 +435,24 @@ export default function ReportsPage() {
                   setSelectedReport(null);
                   setAdminNotes('');
                 }}
-                className="text-slate-400 hover:text-slate-600 text-2xl"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl transition-colors"
               >
                 ×
               </button>
+            </div>
+
+            {/* Status Badge */}
+            <div className="mb-4">
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${STATUS_LABELS[selectedReport.status].bg} ${STATUS_LABELS[selectedReport.status].darkBg} ${STATUS_LABELS[selectedReport.status].color}`}>
+                {STATUS_LABELS[selectedReport.status].label}
+              </span>
             </div>
 
             {/* Report Info */}
             <div className="space-y-4 mb-6">
               <div>
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Type</p>
-                <p className="text-slate-700 dark:text-slate-300">{REPORT_TYPE_LABELS[selectedReport.report_type]}</p>
+                <p className="text-slate-700 dark:text-slate-300">{REPORT_TYPE_LABELS[selectedReport.report_type] || selectedReport.report_type}</p>
               </div>
               
               {selectedReport.description && (
@@ -329,13 +463,55 @@ export default function ReportsPage() {
               )}
 
               {selectedReport.question && (
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Question</p>
+                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Question</p>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className="px-2 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 text-xs font-bold rounded-lg">
+                      Q{selectedReport.question.number}
+                    </span>
+                    <span className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-lg">
+                      📚 {selectedReport.question.module_name}
+                    </span>
+                    <span className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium rounded-lg">
+                      {selectedReport.question.exam_type}
+                    </span>
+                    {selectedReport.question.sub_discipline && (
+                      <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium rounded-lg">
+                        {selectedReport.question.sub_discipline}
+                      </span>
+                    )}
+                    {selectedReport.question.unity_name && (
+                      <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-xs font-medium rounded-lg">
+                        {selectedReport.question.unity_name}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Q{selectedReport.question.number}: {selectedReport.question.question_text.substring(0, 150)}...
+                    {selectedReport.question.question_text.length > 300
+                      ? selectedReport.question.question_text.substring(0, 300) + '...'
+                      : selectedReport.question.question_text}
                   </p>
                 </div>
               )}
+
+              {/* Reporter Info */}
+              {selectedReport.user && (
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Signalé par</p>
+                  <p className="text-slate-700 dark:text-slate-300">
+                    {selectedReport.user.full_name || 'Anonyme'}
+                    {selectedReport.user.email && (
+                      <span className="text-slate-400 dark:text-slate-500 ml-1">({selectedReport.user.email})</span>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {/* Date */}
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Date</p>
+                <p className="text-slate-700 dark:text-slate-300">{formatDate(selectedReport.created_at)}</p>
+              </div>
             </div>
 
             {/* Admin Notes */}
@@ -359,32 +535,47 @@ export default function ReportsPage() {
                 <button
                   onClick={() => updateReportStatus(selectedReport.id, 'reviewing')}
                   disabled={updating || selectedReport.status === 'reviewing'}
-                  className="px-4 py-3 bg-blue-100 text-blue-700 rounded-xl font-semibold hover:bg-blue-200 transition-colors disabled:opacity-50"
+                  className="px-4 py-3 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-xl font-semibold hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-50"
                 >
                   👀 En révision
                 </button>
                 <button
                   onClick={() => updateReportStatus(selectedReport.id, 'resolved')}
                   disabled={updating}
-                  className="px-4 py-3 bg-green-100 text-green-700 rounded-xl font-semibold hover:bg-green-200 transition-colors disabled:opacity-50"
+                  className="px-4 py-3 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-xl font-semibold hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                 >
                   ✅ Résolu
                 </button>
                 <button
                   onClick={() => updateReportStatus(selectedReport.id, 'dismissed')}
                   disabled={updating}
-                  className="px-4 py-3 bg-slate-100 text-slate-700 rounded-xl font-semibold hover:bg-slate-200 transition-colors disabled:opacity-50"
+                  className="px-4 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-semibold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
                 >
                   ❌ Rejeter
                 </button>
                 <button
                   onClick={() => updateReportStatus(selectedReport.id, 'pending')}
                   disabled={updating || selectedReport.status === 'pending'}
-                  className="px-4 py-3 bg-yellow-100 text-yellow-700 rounded-xl font-semibold hover:bg-yellow-200 transition-colors disabled:opacity-50"
+                  className="px-4 py-3 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 rounded-xl font-semibold hover:bg-yellow-200 dark:hover:bg-yellow-900/50 transition-colors disabled:opacity-50"
                 >
                   ⏳ En attente
                 </button>
               </div>
+            </div>
+
+            {/* Delete from Modal */}
+            <div className="mt-6 pt-4 border-t border-slate-200 dark:border-white/10">
+              <button
+                onClick={() => deleteReport(selectedReport.id)}
+                disabled={deleting === selectedReport.id}
+                className="w-full px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl font-semibold hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleting === selectedReport.id ? (
+                  <><span className="animate-spin">⏳</span> Suppression...</>
+                ) : (
+                  <><span>🗑️</span> Supprimer ce signalement</>
+                )}
+              </button>
             </div>
 
             {updating && (

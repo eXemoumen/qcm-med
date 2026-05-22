@@ -2,10 +2,10 @@
 ALTER TABLE public.questions 
 ADD COLUMN IF NOT EXISTS image_url TEXT;
 
--- Create a storage bucket for question images
+-- Create a storage bucket for question images (ensure it's public)
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('question-images', 'question-images', true)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET public = true;
 
 -- Set up security policies for the storage bucket
 -- Allow public read access
