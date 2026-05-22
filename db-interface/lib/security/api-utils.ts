@@ -56,8 +56,25 @@ export function sanitizeError(error: unknown): string {
   }
 
   // Default generic message for unknown errors
-  // DEBUG: Exposing full error to diagnose the issue
-  return `An unexpected error occurred: ${error instanceof Error ? error.message : JSON.stringify(error, null, 2)}`;
+  // Log the full error server-side for debugging, but don't expose to clients
+  if (typeof window === 'undefined') {
+    // Server-side: log the detailed error for observability
+    logger.error('Unhandled error in sanitizeError', {
+      source: 'api/sanitizeError',
+      metadata: {
+        errorMessage: error instanceof Error ? error.message : 'Non-Error object thrown',
+        errorStack: error instanceof Error ? error.stack : undefined,
+      },
+    });
+  }
+
+  // In development, expose details for easier debugging
+  if (process.env.NODE_ENV === 'development') {
+    return `An unexpected error occurred: ${error instanceof Error ? error.message : JSON.stringify(error, null, 2)}`;
+  }
+
+  // In production, return a generic message to prevent information disclosure
+  return 'An unexpected error occurred. Please try again later.';
 }
 
 /**
