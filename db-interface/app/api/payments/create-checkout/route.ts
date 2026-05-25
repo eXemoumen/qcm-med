@@ -263,9 +263,10 @@ export async function GET() {
       duration: plan.duration_days.toString(),
       durationDays: plan.duration_days,
       amount: plan.price,
-      amountFormatted: `${plan.price} DA`,
-      label: `${plan.name} - ${plan.price} DA`,
+      amountFormatted: plan.is_free_trial ? 'Gratuit' : `${plan.price} DA`,
+      label: plan.is_free_trial ? `${plan.name} - Gratuit` : `${plan.name} - ${plan.price} DA`,
       isFeatured: plan.is_featured,
+      isFreeTrial: plan.is_free_trial,
       description: plan.description,
     }));
 

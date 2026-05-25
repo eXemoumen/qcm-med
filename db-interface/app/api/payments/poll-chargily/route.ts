@@ -77,8 +77,50 @@ export async function GET(request: NextRequest) {
         source: 'database',
       }, { headers: getSecurityHeaders() });
     }
+
+    // FREE TRIAL: Never call Chargily API for trial checkouts.
+    // Trial records are created fully complete (status='paid', activation_key linked)
+    // by the claim-trial endpoint. If the DB lookup above didn't find the code,
+    // it means the record doesn't exist yet or something went wrong.
+    if (checkoutId.startsWith('trial-')) {
+      if (existingPayment) {
+        // Record exists but activation key join might have failed — try direct lookup
+        if (existingPayment.activation_key_id) {
+          const { data: trialKey } = await supabaseAdmin
+            .from('activation_keys')
+            .select('key_code')
+            .eq('id', existingPayment.activation_key_id)
+            .single();
+
+          if (trialKey) {
+            return NextResponse.json({
+              status: 'paid',
+              activationCode: trialKey.key_code,
+              customerEmail: existingPayment.customer_email,
+              amount: existingPayment.amount,
+              currency: existingPayment.currency,
+              source: 'database',
+            }, { headers: getSecurityHeaders() });
+          }
+        }
+        // Record exists but no key yet — shouldn't happen for trials
+        return NextResponse.json({
+          status: existingPayment.status,
+          activationCode: null,
+          customerEmail: existingPayment.customer_email,
+          amount: existingPayment.amount,
+          currency: existingPayment.currency,
+          source: 'database',
+        }, { headers: getSecurityHeaders() });
+      }
+      // No record found at all for this trial ID
+      return NextResponse.json(
+        { error: 'Trial payment not found' },
+        { status: 404, headers: getSecurityHeaders() }
+      );
+    }
     
-    // Query Chargily API directly
+    // Query Chargily API directly (paid checkouts only)
     const chargily = getChargilyClient();
     const checkout = await chargily.getCheckout(checkoutId);
     

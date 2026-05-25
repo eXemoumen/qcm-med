@@ -32,6 +32,7 @@ function PaymentSuccessContent() {
     searchParams.get("id") ||
     searchParams.get("checkoutId");
   const MAX_POLLS = 30;
+  const isTrialCheckout = checkoutId?.startsWith("trial-") ?? false;
 
   const fetchPaymentStatus = useCallback(async (): Promise<boolean> => {
     if (!checkoutId) {
@@ -229,19 +230,29 @@ function PaymentSuccessContent() {
           </div>
 
           <h1 className="text-2xl font-bold text-slate-900 mb-2">
-            {loading ? "Traitement en cours..." : "Paiement Réussi !"}
+            {loading
+              ? "Traitement en cours..."
+              : isTrialCheckout
+                ? "Essai Gratuit Activé !"
+                : "Paiement Réussi !"}
           </h1>
 
           <p className="text-slate-600 mb-6">
             {loading
-              ? "Veuillez patienter pendant que nous générons votre code d'activation..."
+              ? isTrialCheckout
+                ? "Votre code d'activation est en cours de génération..."
+                : "Veuillez patienter pendant que nous générons votre code d'activation..."
               : paymentStatus?.autoActivated
                 ? paymentStatus?.activationCode
                   ? "Votre abonnement a été activé automatiquement sur votre compte ! Vous pouvez également noter votre code ci-dessous."
                   : "Votre abonnement a été activé automatiquement sur votre compte !"
                 : paymentStatus?.activationCode
-                  ? "Merci pour votre achat. Votre code d'activation est prêt !"
-                  : "Merci pour votre achat."}
+                  ? isTrialCheckout
+                    ? "Votre essai gratuit est prêt ! Copiez le code ci-dessous pour l'utiliser dans l'application."
+                    : "Merci pour votre achat. Votre code d'activation est prêt !"
+                  : isTrialCheckout
+                    ? "Votre essai gratuit est prêt !"
+                    : "Merci pour votre achat."}
           </p>
 
           {loading && (

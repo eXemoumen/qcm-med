@@ -18,6 +18,7 @@ interface Plan {
   amountFormatted: string;
   label: string;
   isFeatured: boolean;
+  isFreeTrial?: boolean;
   description: string | null;
 }
 
@@ -142,6 +143,32 @@ export default function BuyPage() {
           ? session.user.id
           : undefined;
 
+      // ---- FREE TRIAL PATH ----
+      if (selectedPlan.isFreeTrial) {
+        const response = await fetch("/api/payments/claim-trial", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerEmail: email,
+            customerName: name || undefined,
+            customerPhone: phone || undefined,
+            planId: selectedPlan.id,
+            userId: userId,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Erreur lors de la demande d'essai gratuit");
+        }
+
+        // Redirect to success page with the synthetic checkout ID
+        window.location.href = `/payment/success?checkout_id=${data.checkoutId}`;
+        return;
+      }
+
+      // ---- PAID CHECKOUT PATH ----
       const response = await fetch("/api/payments/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -300,6 +327,11 @@ export default function BuyPage() {
                                 ⭐ Populaire
                               </span>
                             )}
+                            {plan.isFreeTrial && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                🎁 Essai gratuit
+                              </span>
+                            )}
                           </div>
                           <p className="text-sm text-slate-400 mt-0.5">
                             {plan.description ||
@@ -309,12 +341,20 @@ export default function BuyPage() {
 
                         {/* Price */}
                         <div className="flex-shrink-0 text-right">
-                          <span className="text-xl font-bold text-white">
-                            {plan.amount}
-                          </span>
-                          <span className="text-sm text-slate-400 ml-1">
-                            DA
-                          </span>
+                          {plan.isFreeTrial ? (
+                            <span className="text-xl font-bold text-emerald-400">
+                              Gratuit
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-xl font-bold text-white">
+                                {plan.amount}
+                              </span>
+                              <span className="text-sm text-slate-400 ml-1">
+                                DA
+                              </span>
+                            </>
+                          )}
                         </div>
                       </button>
                     ))}
@@ -413,15 +453,23 @@ export default function BuyPage() {
                         </span>
                       </div>
                       <div className="flex items-baseline justify-center gap-1">
-                        <span className="text-5xl font-bold text-slate-900">
-                          {selectedPlan.amount}
-                        </span>
-                        <span className="text-xl text-slate-500 font-medium">
-                          DA
-                        </span>
+                        {selectedPlan.isFreeTrial ? (
+                          <span className="text-5xl font-bold text-emerald-600">
+                            Gratuit
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-5xl font-bold text-slate-900">
+                              {selectedPlan.amount}
+                            </span>
+                            <span className="text-xl text-slate-500 font-medium">
+                              DA
+                            </span>
+                          </>
+                        )}
                       </div>
                       <p className="text-slate-500 text-sm mt-1">
-                        Paiement unique •{" "}
+                        {selectedPlan.isFreeTrial ? "Essai gratuit" : "Paiement unique"} •{" "}
                         {formatDuration(selectedPlan.durationDays)}
                       </p>
                     </>
@@ -442,7 +490,9 @@ export default function BuyPage() {
                       className="w-full px-4 py-3 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all outline-none text-slate-900 placeholder:text-slate-400"
                     />
                     <p className="text-xs text-slate-500 mt-1">
-                      Le code d&apos;activation sera affiché après le paiement
+                      {selectedPlan?.isFreeTrial
+                        ? "Le code d'activation sera affiché immédiatement"
+                        : "Le code d'activation sera affiché après le paiement"}
                     </p>
                   </div>
 
@@ -500,13 +550,13 @@ export default function BuyPage() {
                           )
                         </span>
                         <span className="font-medium text-slate-900">
-                          {selectedPlan.amount} DA
+                          {selectedPlan.isFreeTrial ? "Gratuit" : `${selectedPlan.amount} DA`}
                         </span>
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t border-slate-200">
                         <span className="font-bold text-slate-900">Total</span>
                         <span className="text-xl font-bold text-emerald-600">
-                          {selectedPlan.amount} DA
+                          {selectedPlan.isFreeTrial ? "Gratuit" : `${selectedPlan.amount} DA`}
                         </span>
                       </div>
                     </div>
@@ -538,7 +588,24 @@ export default function BuyPage() {
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                           />
                         </svg>
-                        Redirection...
+                        {selectedPlan?.isFreeTrial ? "Traitement..." : "Redirection..."}
+                      </>
+                    ) : selectedPlan?.isFreeTrial ? (
+                      <>
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"
+                          />
+                        </svg>
+                        Obtenir l&apos;essai gratuit
                       </>
                     ) : (
                       <>

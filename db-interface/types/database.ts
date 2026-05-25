@@ -365,4 +365,5 @@ export interface SubscriptionPlan {
   amount: number;
   amountFormatted: string;
   label: string;
+  isFreeTrial?: boolean;
 }

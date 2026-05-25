@@ -19,6 +19,7 @@ export interface SubscriptionPlan {
   is_active: boolean;
   sort_order: number;
   is_featured: boolean;
+  is_free_trial: boolean;
   description: string | null;
   created_at: string;
   updated_at: string;
@@ -31,6 +32,7 @@ export interface CreatePlanInput {
   is_active?: boolean;
   sort_order?: number;
   is_featured?: boolean;
+  is_free_trial?: boolean;
   description?: string | null;
 }
 
@@ -42,6 +44,7 @@ export interface UpdatePlanInput {
   is_active?: boolean;
   sort_order?: number;
   is_featured?: boolean;
+  is_free_trial?: boolean;
   description?: string | null;
 }
 
@@ -137,6 +140,23 @@ export async function getPlanById(
   return data;
 }
 
+/** Get the currently active free trial plan (if any) */
+export async function getActiveFreeTrialPlan(): Promise<SubscriptionPlan | null> {
+  const { data, error } = await supabaseAdmin
+    .from('subscription_plans')
+    .select('*')
+    .eq('is_active', true)
+    .eq('is_free_trial', true)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[SubscriptionPlans] Error fetching free trial plan:', error);
+    return null;
+  }
+
+  return data || null;
+}
+
 // ============================================================================
 // Write operations
 // ============================================================================
@@ -154,6 +174,7 @@ export async function createPlan(
       is_active: input.is_active ?? true,
       sort_order: input.sort_order ?? 0,
       is_featured: input.is_featured ?? false,
+      is_free_trial: input.is_free_trial ?? false,
       description: input.description ?? null,
     })
     .select()

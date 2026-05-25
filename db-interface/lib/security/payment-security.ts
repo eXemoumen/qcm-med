@@ -119,8 +119,9 @@ export function isValidCheckoutId(checkoutId: string): boolean {
     return false;
   }
   // Chargily uses ULID format: 26 alphanumeric characters
-  // Allow some flexibility for different formats
-  return /^[a-zA-Z0-9]{20,32}$/.test(checkoutId);
+  // Free trial uses: trial-{uuid} format
+  return /^[a-zA-Z0-9]{20,32}$/.test(checkoutId) ||
+    /^trial-[a-f0-9-]{36}$/.test(checkoutId);
 }
 
 /**

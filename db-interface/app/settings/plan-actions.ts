@@ -27,6 +27,7 @@ export async function createPlanAction(formData: FormData): Promise<ActionResult
   const price = parseInt(formData.get('price') as string);
   const description = (formData.get('description') as string) || null;
   const isFeatured = formData.get('is_featured') === 'true';
+  const isFreeTrial = formData.get('is_free_trial') === 'true';
   const sortOrder = parseInt(formData.get('sort_order') as string) || 0;
 
   if (!name || name.trim().length === 0) {
@@ -35,7 +36,10 @@ export async function createPlanAction(formData: FormData): Promise<ActionResult
   if (isNaN(durationDays) || durationDays <= 0) {
     return { error: 'La durée doit être un nombre positif' };
   }
-  if (isNaN(price) || price <= 0) {
+  // Free trial plans have price = 0; regular plans must have price > 0
+  if (isFreeTrial) {
+    // Force price to 0 for free trials
+  } else if (isNaN(price) || price <= 0) {
     return { error: 'Le prix doit être un nombre positif' };
   }
 
@@ -43,9 +47,10 @@ export async function createPlanAction(formData: FormData): Promise<ActionResult
     await createPlan({
       name: name.trim(),
       duration_days: durationDays,
-      price,
+      price: isFreeTrial ? 0 : price,
       description,
       is_featured: isFeatured,
+      is_free_trial: isFreeTrial,
       sort_order: sortOrder,
     });
 
@@ -53,9 +58,13 @@ export async function createPlanAction(formData: FormData): Promise<ActionResult
     revalidatePath('/buy');
     revalidatePath('/api/payments/create-checkout');
 
-    return { success: true, message: 'Offre créée avec succès' };
-  } catch (err) {
+    return { success: true, message: isFreeTrial ? 'Offre d\'essai gratuit créée avec succès' : 'Offre créée avec succès' };
+  } catch (err: any) {
     console.error('Error creating plan:', err);
+    // Handle unique index violation for single active trial
+    if (err?.message?.includes('idx_subscription_plans_single_active_trial') || err?.message?.includes('duplicate key')) {
+      return { error: 'Une offre d\'essai gratuit active existe déjà. Désactivez-la avant d\'en créer une autre.' };
+    }
     return { error: 'Erreur lors de la création de l\'offre' };
   }
 }
@@ -68,6 +77,7 @@ export async function updatePlanAction(formData: FormData): Promise<ActionResult
   const price = parseInt(formData.get('price') as string);
   const description = (formData.get('description') as string) || null;
   const isFeatured = formData.get('is_featured') === 'true';
+  const isFreeTrial = formData.get('is_free_trial') === 'true';
   const sortOrder = parseInt(formData.get('sort_order') as string) || 0;
 
   if (!id) {
@@ -79,7 +89,10 @@ export async function updatePlanAction(formData: FormData): Promise<ActionResult
   if (isNaN(durationDays) || durationDays <= 0) {
     return { error: 'La durée doit être un nombre positif' };
   }
-  if (isNaN(price) || price <= 0) {
+  // Free trial plans have price = 0; regular plans must have price > 0
+  if (isFreeTrial) {
+    // Force price to 0 for free trials
+  } else if (isNaN(price) || price <= 0) {
     return { error: 'Le prix doit être un nombre positif' };
   }
 
@@ -88,9 +101,10 @@ export async function updatePlanAction(formData: FormData): Promise<ActionResult
       id,
       name: name.trim(),
       duration_days: durationDays,
-      price,
+      price: isFreeTrial ? 0 : price,
       description,
       is_featured: isFeatured,
+      is_free_trial: isFreeTrial,
       sort_order: sortOrder,
     });
 
@@ -99,8 +113,11 @@ export async function updatePlanAction(formData: FormData): Promise<ActionResult
     revalidatePath('/api/payments/create-checkout');
 
     return { success: true, message: 'Offre mise à jour avec succès' };
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error updating plan:', err);
+    if (err?.message?.includes('idx_subscription_plans_single_active_trial') || err?.message?.includes('duplicate key')) {
+      return { error: 'Une offre d\'essai gratuit active existe déjà. Désactivez-la avant d\'en créer une autre.' };
+    }
     return { error: 'Erreur lors de la mise à jour de l\'offre' };
   }
 }

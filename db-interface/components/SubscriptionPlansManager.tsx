@@ -20,6 +20,7 @@ interface SubscriptionPlan {
   is_active: boolean;
   sort_order: number;
   is_featured: boolean;
+  is_free_trial: boolean;
   description: string | null;
 }
 
@@ -33,6 +34,7 @@ interface PlanFormData {
   price: string;
   description: string;
   is_featured: boolean;
+  is_free_trial: boolean;
   sort_order: string;
 }
 
@@ -42,6 +44,7 @@ const EMPTY_FORM: PlanFormData = {
   price: "",
   description: "",
   is_featured: false,
+  is_free_trial: false,
   sort_order: "0",
 };
 
@@ -85,6 +88,7 @@ export default function SubscriptionPlansManager({
       price: plan.price.toString(),
       description: plan.description || "",
       is_featured: plan.is_featured,
+      is_free_trial: plan.is_free_trial,
       sort_order: plan.sort_order.toString(),
     });
     setShowForm(true);
@@ -108,9 +112,10 @@ export default function SubscriptionPlansManager({
     const fd = new FormData();
     fd.set("name", formData.name);
     fd.set("duration_days", formData.duration_days);
-    fd.set("price", formData.price);
+    fd.set("price", formData.is_free_trial ? "0" : formData.price);
     fd.set("description", formData.description);
     fd.set("is_featured", formData.is_featured.toString());
+    fd.set("is_free_trial", formData.is_free_trial.toString());
     fd.set("sort_order", formData.sort_order);
 
     let result;
@@ -288,14 +293,15 @@ export default function SubscriptionPlansManager({
                 <input
                   id="plan-price"
                   type="number"
-                  min="1"
-                  value={formData.price}
+                  min="0"
+                  value={formData.is_free_trial ? "0" : formData.price}
                   onChange={(e) =>
                     setFormData({ ...formData, price: e.target.value })
                   }
                   required
-                  placeholder="ex: 500, 1000"
-                  className="block w-full rounded-brand border border-gray-300 px-3 py-2 pr-12 text-sm font-body focus:border-brand-teal focus:ring-brand-teal"
+                  disabled={formData.is_free_trial}
+                  placeholder={formData.is_free_trial ? "Gratuit" : "ex: 500, 1000"}
+                  className="block w-full rounded-brand border border-gray-300 px-3 py-2 pr-12 text-sm font-body focus:border-brand-teal focus:ring-brand-teal disabled:bg-gray-100 disabled:text-gray-400"
                 />
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
                   <span className="text-gray-400 text-sm font-body">DA</span>
@@ -359,6 +365,32 @@ export default function SubscriptionPlansManager({
             </span>
           </label>
 
+          {/* Free trial toggle */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.is_free_trial}
+              onChange={(e) => {
+                const isFreeTrial = e.target.checked;
+                setFormData({
+                  ...formData,
+                  is_free_trial: isFreeTrial,
+                  price: isFreeTrial ? "0" : formData.price === "0" ? "" : formData.price,
+                });
+              }}
+              className="rounded border-gray-300 text-brand-teal focus:ring-brand-teal"
+            />
+            <span className="text-sm font-body text-brand-black">
+              🎁 Essai gratuit (code sans paiement)
+            </span>
+          </label>
+          {formData.is_free_trial && (
+            <p className="text-xs font-body text-amber-600 bg-amber-50 px-3 py-2 rounded-brand border border-amber-100">
+              💡 Les utilisateurs pourront obtenir un code d&apos;activation sans
+              passer par le paiement. Le prix sera automatiquement mis à 0.
+            </p>
+          )}
+
           {/* Buttons */}
           <div className="flex items-center gap-3 pt-2">
             <button
@@ -411,6 +443,11 @@ export default function SubscriptionPlansManager({
                       ⭐ Populaire
                     </span>
                   )}
+                  {plan.is_free_trial && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-teal-100 text-teal-800">
+                      🎁 Essai gratuit
+                    </span>
+                  )}
                   {!plan.is_active && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-body font-medium bg-gray-200 text-gray-600">
                       Inactive
@@ -420,7 +457,7 @@ export default function SubscriptionPlansManager({
                 <p className="text-sm font-body text-gray-500 mt-0.5">
                   {plan.duration_days} jours •{" "}
                   <span className="font-semibold text-brand-black">
-                    {plan.price} DA
+                    {plan.is_free_trial ? "Gratuit" : `${plan.price} DA`}
                   </span>
                   {plan.description && <span> • {plan.description}</span>}
                 </p>
