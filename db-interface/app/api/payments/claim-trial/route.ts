@@ -138,11 +138,16 @@ export async function POST(request: NextRequest) {
     // ========================================================================
     // 5. Abuse check #2: Does this email already have a registered account?
     // ========================================================================
-    const { data: existingUser } = await supabaseAdmin
+    let userQuery = supabaseAdmin
       .from('users')
       .select('id')
-      .eq('email', email)
-      .maybeSingle();
+      .eq('email', email);
+
+    if (userId) {
+      userQuery = userQuery.neq('id', userId);
+    }
+
+    const { data: existingUser } = await userQuery.maybeSingle();
 
     if (existingUser) {
       return NextResponse.json(

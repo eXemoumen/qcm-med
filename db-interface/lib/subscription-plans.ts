@@ -182,7 +182,7 @@ export async function createPlan(
 
   if (error) {
     console.error('[SubscriptionPlans] Error creating plan:', error);
-    throw new Error('Failed to create plan');
+    throwDatabaseError('Failed to create plan', error);
   }
 
   return data;
@@ -206,7 +206,7 @@ export async function updatePlan(
 
   if (error) {
     console.error('[SubscriptionPlans] Error updating plan:', error);
-    throw new Error('Failed to update plan');
+    throwDatabaseError('Failed to update plan', error);
   }
 
   return data;
@@ -230,7 +230,7 @@ export async function togglePlanActive(id: string): Promise<SubscriptionPlan> {
       throw new LastActivePlanError();
     }
     console.error('[SubscriptionPlans] Error toggling plan:', error);
-    throw new Error('Failed to toggle plan status');
+    throwDatabaseError('Failed to toggle plan status', error);
   }
 
   // RPC returns an array (SETOF); take the first row
@@ -260,11 +260,24 @@ export async function deletePlan(id: string): Promise<void> {
       throw new LastActivePlanError('Cannot delete the last active plan');
     }
     console.error('[SubscriptionPlans] Error deleting plan:', error);
-    throw new Error('Failed to delete plan');
+    throwDatabaseError('Failed to delete plan', error);
   }
 
   const deleted = Array.isArray(data) ? data[0] : data;
   if (!deleted) {
     throw new PlanNotFoundError(id);
   }
+}
+
+/** Helper to wrap PostgrestError with Postgres-specific properties (code, constraint, details, hint) */
+function throwDatabaseError(defaultMessage: string, error: any): never {
+  const err = new Error(error.message || defaultMessage);
+  (err as any).code = error.code;
+  (err as any).details = error.details;
+  (err as any).hint = error.hint;
+  const constraintMatch = error.message?.match(/constraint "([^"]+)"/);
+  if (constraintMatch) {
+    (err as any).constraint = constraintMatch[1];
+  }
+  throw err;
 }

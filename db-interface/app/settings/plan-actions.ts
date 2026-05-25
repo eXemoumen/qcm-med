@@ -62,7 +62,12 @@ export async function createPlanAction(formData: FormData): Promise<ActionResult
   } catch (err: any) {
     console.error('Error creating plan:', err);
     // Handle unique index violation for single active trial
-    if (err?.message?.includes('idx_subscription_plans_single_active_trial') || err?.message?.includes('duplicate key')) {
+    if (
+      err?.code === '23505' ||
+      err?.constraint === 'idx_subscription_plans_single_active_trial' ||
+      err?.message?.includes('idx_subscription_plans_single_active_trial') ||
+      err?.message?.includes('duplicate key')
+    ) {
       return { error: 'Une offre d\'essai gratuit active existe déjà. Désactivez-la avant d\'en créer une autre.' };
     }
     return { error: 'Erreur lors de la création de l\'offre' };
@@ -115,7 +120,12 @@ export async function updatePlanAction(formData: FormData): Promise<ActionResult
     return { success: true, message: 'Offre mise à jour avec succès' };
   } catch (err: any) {
     console.error('Error updating plan:', err);
-    if (err?.message?.includes('idx_subscription_plans_single_active_trial') || err?.message?.includes('duplicate key')) {
+    if (
+      err?.code === '23505' ||
+      err?.constraint === 'idx_subscription_plans_single_active_trial' ||
+      err?.message?.includes('idx_subscription_plans_single_active_trial') ||
+      err?.message?.includes('duplicate key')
+    ) {
       return { error: 'Une offre d\'essai gratuit active existe déjà. Désactivez-la avant d\'en créer une autre.' };
     }
     return { error: 'Erreur lors de la mise à jour de l\'offre' };
@@ -136,7 +146,7 @@ export async function togglePlanAction(planId: string): Promise<ActionResult> {
     revalidatePath('/api/payments/create-checkout');
 
     return { success: true, message: 'Statut mis à jour' };
-  } catch (err) {
+  } catch (err: any) {
     if (err instanceof LastActivePlanError) {
       return { error: 'Impossible de désactiver la dernière offre active' };
     }
@@ -144,6 +154,14 @@ export async function togglePlanAction(planId: string): Promise<ActionResult> {
       return { error: 'Offre introuvable' };
     }
     console.error('Error toggling plan:', err);
+    if (
+      err?.code === '23505' ||
+      err?.constraint === 'idx_subscription_plans_single_active_trial' ||
+      err?.message?.includes('idx_subscription_plans_single_active_trial') ||
+      err?.message?.includes('duplicate key')
+    ) {
+      return { error: 'Une offre d\'essai gratuit active existe déjà. Désactivez-la avant d\'en créer une autre.' };
+    }
     return { error: 'Erreur lors de la mise à jour du statut' };
   }
 }
