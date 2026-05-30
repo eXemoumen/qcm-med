@@ -423,8 +423,9 @@ CREATE TABLE IF NOT EXISTS "public"."subscription_plans" (
     "description" "text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "is_free_trial" boolean DEFAULT false NOT NULL,
     CONSTRAINT "subscription_plans_duration_days_check" CHECK (("duration_days" > 0)),
-    CONSTRAINT "subscription_plans_price_check" CHECK (("price" > 0))
+    CONSTRAINT "subscription_plans_price_check" CHECK (("price" >= 0))
 );
 
 
@@ -448,6 +449,10 @@ COMMENT ON COLUMN "public"."subscription_plans"."is_active" IS 'Whether this pla
 
 
 COMMENT ON COLUMN "public"."subscription_plans"."is_featured" IS 'Whether to show a highlight badge on the buy page';
+
+
+
+COMMENT ON COLUMN "public"."subscription_plans"."is_free_trial" IS 'When true, this plan is a free trial that generates activation codes without payment';
 
 
 
@@ -2755,6 +2760,10 @@ CREATE INDEX "idx_saved_questions_user" ON "public"."saved_questions" USING "btr
 
 
 CREATE INDEX "idx_subscription_plans_active" ON "public"."subscription_plans" USING "btree" ("is_active");
+
+
+
+CREATE UNIQUE INDEX "idx_subscription_plans_single_active_trial" ON "public"."subscription_plans" USING "btree" ("is_free_trial") WHERE (("is_free_trial" = true) AND ("is_active" = true));
 
 
 
