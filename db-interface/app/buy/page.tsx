@@ -160,7 +160,9 @@ export default function BuyPage() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || "Erreur lors de la demande d'essai gratuit");
+          throw new Error(
+            data.error || "Erreur lors de la demande d'essai gratuit",
+          );
         }
 
         // Redirect to success page with the synthetic checkout ID
@@ -258,7 +260,7 @@ export default function BuyPage() {
             <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 tracking-tight">
               Accès Premium
               <span className="block bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
-                Endo, Neuro, Immuno et Génétique
+                2ème Année Médecine
               </span>
             </h2>
             <p className="text-slate-400 text-lg max-w-2xl mx-auto">
@@ -469,8 +471,10 @@ export default function BuyPage() {
                         )}
                       </div>
                       <p className="text-slate-500 text-sm mt-1">
-                        {selectedPlan.isFreeTrial ? "Essai gratuit" : "Paiement unique"} •{" "}
-                        {formatDuration(selectedPlan.durationDays)}
+                        {selectedPlan.isFreeTrial
+                          ? "Essai gratuit"
+                          : "Paiement unique"}{" "}
+                        • {formatDuration(selectedPlan.durationDays)}
                       </p>
                     </>
                   ) : null}
@@ -550,13 +554,17 @@ export default function BuyPage() {
                           )
                         </span>
                         <span className="font-medium text-slate-900">
-                          {selectedPlan.isFreeTrial ? "Gratuit" : `${selectedPlan.amount} DA`}
+                          {selectedPlan.isFreeTrial
+                            ? "Gratuit"
+                            : `${selectedPlan.amount} DA`}
                         </span>
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t border-slate-200">
                         <span className="font-bold text-slate-900">Total</span>
                         <span className="text-xl font-bold text-emerald-600">
-                          {selectedPlan.isFreeTrial ? "Gratuit" : `${selectedPlan.amount} DA`}
+                          {selectedPlan.isFreeTrial
+                            ? "Gratuit"
+                            : `${selectedPlan.amount} DA`}
                         </span>
                       </div>
                     </div>
@@ -588,7 +596,9 @@ export default function BuyPage() {
                             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                           />
                         </svg>
-                        {selectedPlan?.isFreeTrial ? "Traitement..." : "Redirection..."}
+                        {selectedPlan?.isFreeTrial
+                          ? "Traitement..."
+                          : "Redirection..."}
                       </>
                     ) : selectedPlan?.isFreeTrial ? (
                       <>
