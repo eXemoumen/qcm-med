@@ -514,9 +514,8 @@
 }
 
 .landing-navbar__logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  height: 48px;
+  width: auto;
   object-fit: contain;
 }
 

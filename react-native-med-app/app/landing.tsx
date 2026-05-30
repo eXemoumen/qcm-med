@@ -310,28 +310,25 @@ export default function LandingPage() {
 
         <div className="landing-container landing-hero__content">
           <div className="landing-hero__text">
-            <div className="landing-hero__badge">
-              <span className="landing-hero__badge-dot" />
-              2ème Année Médecine • Constantine
-            </div>
+           
 
             <h1 className="landing-hero__title">
-              Révisez avec
-              <span className="landing-hero__title-accent"> Excellence</span>
+              Medical study
+              <span className="landing-hero__title-accent"> reinvented</span>
             </h1>
 
             <p className="landing-hero__subtitle">
-              La plateforme de révision incontournable pour les étudiants en médecine de Constantine et ses annexes.
-              QCMs interactifs, mode hors-ligne et suivi personnalisé.
+              The ultimate MCQ bank for medical students of Constantine and its branches.
+              Interactive MCQs, offline mode, and personalized tracking.
             </p>
 
             <div className="landing-hero__actions">
               <button className="landing-btn landing-btn--hero-primary" onClick={navigateToRegister}>
-                Commencer gratuitement
+                Créer un compte
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
               <button className="landing-btn landing-btn--hero-secondary" onClick={navigateToLogin}>
-                J'ai déjà un compte
+                Se connecter
               </button>
             </div>
 
@@ -429,7 +426,7 @@ export default function LandingPage() {
               <span className="landing-footer__brand-name">FMC App</span>
             </div>
             <p className="landing-footer__tagline">
-              Study Everywhere — La plateforme de révision pour les étudiants en médecine de Constantine.
+              Study Everywhere — The ultimate MCQ bank for medical students of Constantine.
             </p>
           </div>
 

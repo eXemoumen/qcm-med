@@ -18,11 +18,11 @@ export default function Root({ children }: PropsWithChildren) {
           This helps with navigation and accessibility.
         */}
         <title>FMC App - Study Everywhere | Révision Médecine Constantine</title>
-        <meta name="description" content="La plateforme de révision incontournable pour les étudiants en médecine de Constantine et ses annexes. QCMs interactifs, mode hors-ligne et suivi personnalisé." />
+        <meta name="description" content="The ultimate MCQ bank for medical students of Constantine and its branches. Interactive MCQs, offline mode, and personalized tracking." />
 
         {/* Open Graph */}
         <meta property="og:title" content="FMC App - Study Everywhere" />
-        <meta property="og:description" content="La plateforme de révision incontournable pour les étudiants en médecine de Constantine." />
+        <meta property="og:description" content="The ultimate MCQ bank for medical students of Constantine." />
         <meta property="og:type" content="website" />
 
         {/* Brand Fonts: Manrope (headings) + Cairo (body/Arabic) per brand identity */}
