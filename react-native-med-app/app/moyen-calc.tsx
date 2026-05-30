@@ -479,9 +479,7 @@ export default function MoyenCalcScreen() {
                               style={{
                                 flexDirection: "row",
                                 alignItems: "center",
-                                justifyContent: "space-between",
                                 gap: 10,
-                                marginBottom: 10,
                               }}
                             >
                               <Text
@@ -492,6 +490,7 @@ export default function MoyenCalcScreen() {
                                   fontWeight: "800",
                                   lineHeight: 19,
                                 }}
+                                numberOfLines={2}
                               >
                                 {item.label}
                               </Text>
@@ -513,32 +512,33 @@ export default function MoyenCalcScreen() {
                                   coef {item.coefficient}
                                 </Text>
                               </View>
+                              <TextInput
+                                value={rawValue}
+                                onChangeText={(nextValue) =>
+                                  updateValue(item.id, nextValue)
+                                }
+                                placeholder="/ 20"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="decimal-pad"
+                                maxLength={5}
+                                style={{
+                                  width: 72,
+                                  minHeight: 42,
+                                  borderRadius: 12,
+                                  borderWidth: 1,
+                                  borderColor: isInvalid
+                                    ? colors.error
+                                    : colors.border,
+                                  backgroundColor: colors.backgroundSecondary,
+                                  color: colors.text,
+                                  fontSize: 18,
+                                  fontWeight: "800",
+                                  paddingHorizontal: 10,
+                                  textAlign: "center",
+                                  outlineStyle: "none" as any,
+                                }}
+                              />
                             </View>
-
-                            <TextInput
-                              value={rawValue}
-                              onChangeText={(nextValue) =>
-                                updateValue(item.id, nextValue)
-                              }
-                              placeholder="0 - 20"
-                              placeholderTextColor={colors.textMuted}
-                              keyboardType="decimal-pad"
-                              maxLength={5}
-                              style={{
-                                minHeight: 46,
-                                borderRadius: 12,
-                                borderWidth: 1,
-                                borderColor: isInvalid
-                                  ? colors.error
-                                  : colors.border,
-                                backgroundColor: colors.backgroundSecondary,
-                                color: colors.text,
-                                fontSize: 18,
-                                fontWeight: "800",
-                                paddingHorizontal: 14,
-                                outlineStyle: "none" as any,
-                              }}
-                            />
 
                             {isInvalid && (
                               <View
@@ -623,8 +623,8 @@ export default function MoyenCalcScreen() {
                     {result.isComplete
                       ? "Toutes les notes sont complétées."
                       : result.invalidCount > 0
-                        ? "Corrigez les notes en rouge pour obtenir la moyenne finale."
-                        : "Complétez les notes restantes pour afficher la moyenne finale."}
+                        ? "Corrigez les notes en rouge pour les inclure dans la moyenne."
+                        : `${result.missingCount} note${result.missingCount > 1 ? "s" : ""} restante${result.missingCount > 1 ? "s" : ""} — la moyenne se met à jour en temps réel.`}
                   </Text>
                 </View>
 

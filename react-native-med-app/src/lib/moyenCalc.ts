@@ -122,6 +122,7 @@ export function calculateMoyenne(
   const config = YEAR_CONFIGS[year];
   let weightedSum = 0;
   let completedCount = 0;
+  let completedCoefficients = 0;
   const missingItemIds: string[] = [];
   const invalidItemIds: string[] = [];
 
@@ -140,13 +141,16 @@ export function calculateMoyenne(
     }
 
     weightedSum += parsed * item.coefficient;
+    completedCoefficients += item.coefficient;
     completedCount += 1;
   }
 
   const missingCount = missingItemIds.length + invalidItemIds.length;
   const invalidCount = invalidItemIds.length;
   const isComplete = missingCount === 0;
-  const moyenne = isComplete
+
+  // Live average: compute from filled fields only, using their coefficients
+  const moyenne = completedCount > 0
     ? Number((weightedSum / config.totalCoefficients).toFixed(2))
     : null;
 
