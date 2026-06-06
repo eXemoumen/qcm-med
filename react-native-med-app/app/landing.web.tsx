@@ -52,9 +52,9 @@ interface SubscriptionPlan {
 
 // Default features included in all plans
 const PLAN_FEATURES_DEFAULT = [
-  "Accès à <b>tous les QCMs</b> et modules",
-  "Statistiques en temps réel via l'application",
-  "Ressources OneDrive et Telegram incluses",
+  " Accès à tous les QCMs de l'année ",
+  "Statistiques en temps réel",
+  "Ressources Google Drive et Chaines Telegram incluses",
 ];
 
 const PLAN_FEATURES_FEATURED = [
@@ -73,7 +73,7 @@ const STATS = [
     label: "QCMs Vérifiés",
     staticVal: null,
   },
-  { target: 15, suffix: "+", label: "Modules Clés", staticVal: null },
+  { target: 7, suffix: "+", label: "Modules Clés", staticVal: null },
   { target: 5, label: "Wilayas Actives", staticVal: null },
   { target: 0, staticVal: "24/7", label: "Accès Illimité" },
 ];
@@ -92,27 +92,6 @@ const FEATURES = [
     desc: "Réservez vos données. Téléchargez vos modules et révisez n'importe où sans connexion.",
     color: "#9840fe",
     bg: "rgba(152,64,254,0.2)",
-  },
-  {
-    icon: Filter,
-    title: "Filtrage Avancé",
-    desc: "Triez par source, par difficulté ou par thématique précise en un clic.",
-    color: "#e98556",
-    bg: "rgba(233,133,86,0.2)",
-  },
-  {
-    icon: BarChart2,
-    title: "Statistiques Détaillées",
-    desc: "Visualisez vos points forts et identifiez vos lacunes grâce à nos graphiques de performance en temps réel.",
-    color: "#006a66",
-    bg: "rgba(0,106,102,0.2)",
-  },
-  {
-    icon: Edit3,
-    title: "Notes Personnelles",
-    desc: "Ajoutez vos propres explications directement sur les questions difficiles.",
-    color: "#7e17e4",
-    bg: "rgba(126,23,228,0.2)",
   },
 ];
 
@@ -301,8 +280,11 @@ export default function LandingWeb() {
           className="flex items-center gap-3 cursor-pointer"
           onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
         >
-          <img src="/logo.png" alt="FMC App" className="h-12 md:h-14 w-auto object-contain" />
-         
+          <img
+            src="/logo.png"
+            alt="FMC App"
+            className="h-12 md:h-14 w-auto object-contain"
+          />
         </div>
 
         <div className="hidden md:flex gap-8 items-center">
@@ -685,12 +667,11 @@ export default function LandingWeb() {
                 Fonctionnalités
               </span>
               <h2 className="text-4xl md:text-5xl lg:text-6xl font-['Manrope'] font-extrabold leading-tight">
-                Étudiez plus intelligemment, pas plus dur.
+                Étudiez plus intelligemment.
               </h2>
             </div>
             <p className="text-slate-400 text-lg max-w-sm mb-2">
-              Des outils conçus spécifiquement pour la méthode d'apprentissage
-              médicale.
+              Des outils conçus pour optimiser votre apprentissage
             </p>
           </motion.div>
 
@@ -699,7 +680,7 @@ export default function LandingWeb() {
             whileInView="visible"
             viewport={{ once: true }}
             variants={staggerContainer}
-            className="grid grid-cols-1 md:grid-cols-3 gap-6"
+            className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6"
           >
             {FEATURES.map((feat, i) => {
               const Icon = feat.icon;
@@ -783,12 +764,8 @@ export default function LandingWeb() {
               Disponibilité
             </span>
             <h2 className="text-4xl md:text-5xl font-['Manrope'] font-extrabold text-white mb-6">
-              Où acheter votre code ?
+              Où acheter votre code d'activation ?
             </h2>
-            <p className="text-slate-400 text-lg">
-              Nos partenaires vous accueillent pour activer votre abonnement FMC
-              App.
-            </p>
           </motion.div>
 
           <motion.div
@@ -921,7 +898,7 @@ export default function LandingWeb() {
               </a>
               <a
                 className="hover:text-[#006a66] transition-colors flex items-center gap-3"
-                href="#"
+                href="https://www.facebook.com/share/18Z9Gd962X/"
                 target="_blank"
                 rel="noreferrer"
               >
@@ -1041,9 +1018,7 @@ function PricingSection({ goAuth }: { goAuth: () => void }) {
           <h2 className="text-4xl md:text-5xl font-['Manrope'] font-extrabold text-white mb-6">
             Investissez dans votre succès
           </h2>
-          <p className="text-slate-400 max-w-xl mx-auto text-lg">
-            Des tarifs simples pour un accès premium à toutes nos ressources.
-          </p>
+          <p className="text-slate-400 max-w-xl mx-auto text-lg"></p>
         </motion.div>
 
         {loading ? (

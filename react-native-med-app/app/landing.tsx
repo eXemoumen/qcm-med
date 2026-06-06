@@ -55,7 +55,7 @@ const SELLING_POINTS = [
 
 const STATS = [
   { value: '+3K', label: 'QCMs' },
-  { value: '15+', label: 'Modules' },
+  { value: '+7', label: 'Modules' },
   { value: '5', label: 'Wilayas' },
   { value: '24/7', label: 'Disponible' },
 ];
@@ -240,24 +240,45 @@ export default function LandingPage() {
       {/* ================================================================
           NAVBAR
           ================================================================ */}
-      <nav className={`landing-navbar ${scrolled ? 'landing-navbar--scrolled' : ''}`}>
+      <nav
+        className={`landing-navbar ${scrolled ? "landing-navbar--scrolled" : ""}`}
+      >
         <div className="landing-container landing-navbar__inner">
-          <div className="landing-navbar__brand" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <img src={LogoImg} alt="FMC App Logo" className="landing-navbar__logo" />
+          <div
+            className="landing-navbar__brand"
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          >
+            <img
+              src={LogoImg}
+              alt="FMC App Logo"
+              className="landing-navbar__logo"
+            />
             <span className="landing-navbar__name">FMC App</span>
           </div>
 
           <div className="landing-navbar__links landing-navbar__links--desktop">
-            <a href="#features" className="landing-navbar__link">Fonctionnalités</a>
-            <a href="#how-it-works" className="landing-navbar__link">Comment ça marche</a>
-            <a href="#selling-points" className="landing-navbar__link">Points de vente</a>
+            <a href="#features" className="landing-navbar__link">
+              Fonctionnalités
+            </a>
+            <a href="#how-it-works" className="landing-navbar__link">
+              Comment ça marche
+            </a>
+            <a href="#selling-points" className="landing-navbar__link">
+              Points de vente
+            </a>
           </div>
 
           <div className="landing-navbar__actions landing-navbar__actions--desktop">
-            <button className="landing-btn landing-btn--ghost" onClick={navigateToLogin}>
+            <button
+              className="landing-btn landing-btn--ghost"
+              onClick={navigateToLogin}
+            >
               Se connecter
             </button>
-            <button className="landing-btn landing-btn--primary" onClick={navigateToRegister}>
+            <button
+              className="landing-btn landing-btn--primary"
+              onClick={navigateToRegister}
+            >
               Créer un compte
             </button>
           </div>
@@ -268,29 +289,53 @@ export default function LandingPage() {
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Menu"
           >
-            <span className={`landing-navbar__hamburger-line ${mobileMenuOpen ? 'open' : ''}`}></span>
-            <span className={`landing-navbar__hamburger-line ${mobileMenuOpen ? 'open' : ''}`}></span>
-            <span className={`landing-navbar__hamburger-line ${mobileMenuOpen ? 'open' : ''}`}></span>
+            <span
+              className={`landing-navbar__hamburger-line ${mobileMenuOpen ? "open" : ""}`}
+            ></span>
+            <span
+              className={`landing-navbar__hamburger-line ${mobileMenuOpen ? "open" : ""}`}
+            ></span>
+            <span
+              className={`landing-navbar__hamburger-line ${mobileMenuOpen ? "open" : ""}`}
+            ></span>
           </button>
         </div>
 
         {/* Mobile menu */}
         {mobileMenuOpen && (
           <div className="landing-navbar__mobile-menu">
-            <a href="#features" className="landing-navbar__mobile-link" onClick={() => setMobileMenuOpen(false)}>
+            <a
+              href="#features"
+              className="landing-navbar__mobile-link"
+              onClick={() => setMobileMenuOpen(false)}
+            >
               Fonctionnalités
             </a>
-            <a href="#how-it-works" className="landing-navbar__mobile-link" onClick={() => setMobileMenuOpen(false)}>
+            <a
+              href="#how-it-works"
+              className="landing-navbar__mobile-link"
+              onClick={() => setMobileMenuOpen(false)}
+            >
               Comment ça marche
             </a>
-            <a href="#selling-points" className="landing-navbar__mobile-link" onClick={() => setMobileMenuOpen(false)}>
+            <a
+              href="#selling-points"
+              className="landing-navbar__mobile-link"
+              onClick={() => setMobileMenuOpen(false)}
+            >
               Points de vente
             </a>
             <div className="landing-navbar__mobile-actions">
-              <button className="landing-btn landing-btn--ghost landing-btn--full" onClick={navigateToLogin}>
+              <button
+                className="landing-btn landing-btn--ghost landing-btn--full"
+                onClick={navigateToLogin}
+              >
                 Se connecter
               </button>
-              <button className="landing-btn landing-btn--primary landing-btn--full" onClick={navigateToRegister}>
+              <button
+                className="landing-btn landing-btn--primary landing-btn--full"
+                onClick={navigateToRegister}
+              >
                 Créer un compte
               </button>
             </div>
@@ -310,37 +355,74 @@ export default function LandingPage() {
 
         <div className="landing-container landing-hero__content">
           <div className="landing-hero__text">
-           
-
             <h1 className="landing-hero__title">
               Medical study
               <span className="landing-hero__title-accent"> reinvented</span>
             </h1>
 
             <p className="landing-hero__subtitle">
-              The ultimate MCQ bank for medical students of Constantine and its branches.
-              Interactive MCQs, offline mode, and personalized tracking.
+              The ultimate MCQ bank for medical students of Constantine and its
+              branches. Interactive MCQs, offline mode, and personalized
+              tracking.
             </p>
 
             <div className="landing-hero__actions">
-              <button className="landing-btn landing-btn--hero-primary" onClick={navigateToRegister}>
+              <button
+                className="landing-btn landing-btn--hero-primary"
+                onClick={navigateToRegister}
+              >
                 Créer un compte
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
               </button>
-              <button className="landing-btn landing-btn--hero-secondary" onClick={navigateToLogin}>
+              <button
+                className="landing-btn landing-btn--hero-secondary"
+                onClick={navigateToLogin}
+              >
                 Se connecter
               </button>
             </div>
 
             <div className="landing-hero__trust">
               <div className="landing-hero__trust-avatars">
-                <div className="landing-hero__trust-avatar" style={{ background: '#09b2ac' }}>M</div>
-                <div className="landing-hero__trust-avatar" style={{ background: '#9941ff' }}>S</div>
-                <div className="landing-hero__trust-avatar" style={{ background: '#0d9488' }}>A</div>
-                <div className="landing-hero__trust-avatar" style={{ background: '#262626' }}>K</div>
+                <div
+                  className="landing-hero__trust-avatar"
+                  style={{ background: "#09b2ac" }}
+                >
+                  M
+                </div>
+                <div
+                  className="landing-hero__trust-avatar"
+                  style={{ background: "#9941ff" }}
+                >
+                  S
+                </div>
+                <div
+                  className="landing-hero__trust-avatar"
+                  style={{ background: "#0d9488" }}
+                >
+                  A
+                </div>
+                <div
+                  className="landing-hero__trust-avatar"
+                  style={{ background: "#262626" }}
+                >
+                  K
+                </div>
               </div>
               <span className="landing-hero__trust-text">
-                Rejoignez des centaines d'étudiants qui révisent déjà avec FMC App
+                Rejoignez des centaines d'étudiants qui révisent déjà avec FMC
+                App
               </span>
             </div>
           </div>
@@ -351,29 +433,45 @@ export default function LandingPage() {
                 <div className="landing-hero__phone-notch" />
                 <div className="landing-hero__phone-screen">
                   <div className="landing-hero__phone-header">
-                    <img src={LogoImg} alt="" className="landing-hero__phone-logo" />
+                    <img
+                      src={LogoImg}
+                      alt=""
+                      className="landing-hero__phone-logo"
+                    />
                     <span>FMC App</span>
                   </div>
                   <div className="landing-hero__phone-content">
                     <div className="landing-hero__phone-card">
                       <div className="landing-hero__phone-card-icon">📝</div>
                       <div>
-                        <div className="landing-hero__phone-card-title">QCM Pratique</div>
-                        <div className="landing-hero__phone-card-sub">152 questions</div>
+                        <div className="landing-hero__phone-card-title">
+                          QCM Pratique
+                        </div>
+                        <div className="landing-hero__phone-card-sub">
+                          152 questions
+                        </div>
                       </div>
                     </div>
                     <div className="landing-hero__phone-card">
                       <div className="landing-hero__phone-card-icon">📊</div>
                       <div>
-                        <div className="landing-hero__phone-card-title">Progression</div>
-                        <div className="landing-hero__phone-card-sub">78% réussi</div>
+                        <div className="landing-hero__phone-card-title">
+                          Progression
+                        </div>
+                        <div className="landing-hero__phone-card-sub">
+                          78% réussi
+                        </div>
                       </div>
                     </div>
                     <div className="landing-hero__phone-card">
                       <div className="landing-hero__phone-card-icon">🏥</div>
                       <div>
-                        <div className="landing-hero__phone-card-title">Mode Examen</div>
-                        <div className="landing-hero__phone-card-sub">Chronomètre intégré</div>
+                        <div className="landing-hero__phone-card-title">
+                          Mode Examen
+                        </div>
+                        <div className="landing-hero__phone-card-sub">
+                          Chronomètre intégré
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -422,40 +520,74 @@ export default function LandingPage() {
         <div className="landing-container landing-footer__inner">
           <div className="landing-footer__brand">
             <div className="landing-footer__brand-row">
-              <img src={LogoImg} alt="FMC App" className="landing-footer__logo" />
+              <img
+                src={LogoImg}
+                alt="FMC App"
+                className="landing-footer__logo"
+              />
               <span className="landing-footer__brand-name">FMC App</span>
             </div>
             <p className="landing-footer__tagline">
-              Study Everywhere — The ultimate MCQ bank for medical students of Constantine.
+              Study Everywhere — The ultimate MCQ bank for medical students of
+              Constantine.
             </p>
           </div>
 
           <div className="landing-footer__links-group">
             <h4 className="landing-footer__heading">Liens Rapides</h4>
-            <a href="#features" className="landing-footer__link">Fonctionnalités</a>
-            <a href="#how-it-works" className="landing-footer__link">Comment ça marche</a>
-            <a href="#selling-points" className="landing-footer__link">Points de vente</a>
+            <a href="#features" className="landing-footer__link">
+              Fonctionnalités
+            </a>
+            <a href="#how-it-works" className="landing-footer__link">
+              Comment ça marche
+            </a>
+            <a href="#selling-points" className="landing-footer__link">
+              Points de vente
+            </a>
           </div>
 
           <div className="landing-footer__links-group">
             <h4 className="landing-footer__heading">Suivez-nous</h4>
-            <a href="https://t.me/FMC_App" target="_blank" rel="noopener noreferrer" className="landing-footer__link">
+            <a
+              href="https://t.me/FMC_App"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="landing-footer__link"
+            >
               📱 Telegram
             </a>
-            <a href="https://www.instagram.com/fmc.app" target="_blank" rel="noopener noreferrer" className="landing-footer__link">
+            <a
+              href="https://www.instagram.com/fmc.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="landing-footer__link"
+            >
               📷 Instagram
             </a>
-            <a href="https://www.facebook.com/profile.php?id=61585713960728" target="_blank" rel="noopener noreferrer" className="landing-footer__link">
+            <a
+              href="https://www.facebook.com/share/18Z9Gd962X/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="landing-footer__link"
+            >
               👥 Facebook
             </a>
           </div>
 
           <div className="landing-footer__links-group">
             <h4 className="landing-footer__heading">Contact</h4>
-            <a href="mailto:fmc.app.contact@gmail.com" className="landing-footer__link">
+            <a
+              href="mailto:fmc.app.contact@gmail.com"
+              className="landing-footer__link"
+            >
               ✉️ fmc.app.contact@gmail.com
             </a>
-            <a href="https://play.google.com/store/apps/details?id=com.fmcapp.mobile" target="_blank" rel="noopener noreferrer" className="landing-footer__link">
+            <a
+              href="https://play.google.com/store/apps/details?id=com.fmcapp.mobile"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="landing-footer__link"
+            >
               📲 Google Play Store
             </a>
           </div>
@@ -463,7 +595,9 @@ export default function LandingPage() {
 
         <div className="landing-footer__bottom">
           <div className="landing-container landing-footer__bottom-inner">
-            <span>© {new Date().getFullYear()} FMC App. Tous droits réservés.</span>
+            <span>
+              © {new Date().getFullYear()} FMC App. Tous droits réservés.
+            </span>
             <span>Faculté de Médecine de Constantine</span>
           </div>
         </div>
