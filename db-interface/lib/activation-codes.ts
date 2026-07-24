@@ -25,15 +25,22 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
  * Generate cryptographically secure random bytes
  */
 function getSecureRandomBytes(length: number): Uint8Array {
-  if (typeof window !== 'undefined' && window.crypto) {
-    return window.crypto.getRandomValues(new Uint8Array(length));
+  if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.getRandomValues === 'function') {
+    return globalThis.crypto.getRandomValues(new Uint8Array(length));
   }
-  // Fallback for server-side (less secure, but functional)
-  const bytes = new Uint8Array(length);
-  for (let i = 0; i < length; i++) {
-    bytes[i] = Math.floor(Math.random() * 256);
+  
+  // Node.js fallback
+  try {
+    const crypto = require('crypto');
+    return new Uint8Array(crypto.randomBytes(length));
+  } catch (e) {
+    // Last resort fallback if absolutely nothing else is available
+    const bytes = new Uint8Array(length);
+    for (let i = 0; i < length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+    return bytes;
   }
-  return bytes;
 }
 
 /**
