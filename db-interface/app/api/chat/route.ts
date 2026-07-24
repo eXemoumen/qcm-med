@@ -1,13 +1,22 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { NextResponse } from 'next/server';
-import { 
-  ALL_MODELS, 
-  DEFAULT_MODEL, 
-  FALLBACK_ORDER, 
+import { NextRequest, NextResponse } from 'next/server';
+import {
+  ALL_MODELS,
+  DEFAULT_MODEL,
+  FALLBACK_ORDER,
   getModelProvider,
   getModelDisplayName,
 } from '@/lib/ai-models';
 import { searchKnowledge, formatContextForPrompt, logChatInteraction } from '@/lib/rag';
+import {
+  requireAuthenticatedAdmin,
+  applyRateLimit,
+  sanitizeError,
+  errorResponse,
+  successResponse,
+} from '@/lib/security/api-utils';
+
+const MAX_MESSAGE_LENGTH = 10000;
 
 const baseSystemPrompt = `
 # FMC App - Faculty of Medicine Constantine | تطبيق FMC - كلية الطب قسنطينة
@@ -172,56 +181,62 @@ async function tryModel(
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const startTime = Date.now();
-  
+
   try {
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req, 'write');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
     const { message, model: requestedModel, autoFallback = true, enableRAG = true } = await req.json();
 
     if (!message || typeof message !== 'string') {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+      return errorResponse('Message is required', 400, rateLimitResult.headers);
+    }
+
+    // Validate message length
+    if (message.length > MAX_MESSAGE_LENGTH) {
+      return errorResponse(`Message too long (max ${MAX_MESSAGE_LENGTH} characters)`, 400, rateLimitResult.headers);
     }
 
     const selectedModel = requestedModel || DEFAULT_MODEL;
-    
+
     // RAG: Search for relevant knowledge
     let contextResults: any[] = [];
     let systemPrompt = baseSystemPrompt;
-    
+
     if (enableRAG) {
       try {
         contextResults = await searchKnowledge(message, { threshold: 0.5, limit: 3 });
         if (contextResults.length > 0) {
           const contextText = formatContextForPrompt(contextResults);
           systemPrompt = baseSystemPrompt + contextText;
-          console.log(`RAG: Found ${contextResults.length} relevant knowledge items`);
         }
       } catch (ragError) {
         console.warn('RAG search failed, continuing without context:', ragError);
       }
     }
-    
+
     // Try the requested model first
     let result = await tryModel(selectedModel, message, systemPrompt);
     let usedModel = selectedModel;
-    
+
     // If failed and auto-fallback is enabled, try other models
     if (!result.success && autoFallback) {
-      console.log(`Model ${usedModel} failed: ${result.error}, trying fallbacks...`);
-      
       for (const fallbackModel of FALLBACK_ORDER) {
         if (fallbackModel === selectedModel) continue;
-        
-        console.log(`Trying fallback: ${fallbackModel}...`);
+
         result = await tryModel(fallbackModel, message, systemPrompt);
         usedModel = fallbackModel;
-        
+
         if (result.success) {
-          console.log(`Success with fallback: ${fallbackModel}`);
           break;
         }
-        
-        console.log(`Fallback ${fallbackModel} failed: ${result.error}`);
       }
     }
 
@@ -231,11 +246,12 @@ export async function POST(req: Request) {
     if (!result.success) {
       const errorMessage = result.error === 'rate_limited'
         ? 'All models are currently rate limited. Please try again in a few minutes.'
-        : result.error || 'Failed to generate response';
-      
-      return NextResponse.json(
-        { error: errorMessage, rateLimited: result.error === 'rate_limited' },
-        { status: result.error === 'rate_limited' ? 429 : 500 }
+        : 'Failed to generate response';
+
+      return errorResponse(
+        errorMessage,
+        result.error === 'rate_limited' ? 429 : 500,
+        rateLimitResult.headers
       );
     }
 
@@ -250,7 +266,7 @@ export async function POST(req: Request) {
       response_time_ms: responseTime,
     }).catch(err => console.warn('Failed to log chat:', err));
 
-    return NextResponse.json({ 
+    return successResponse({
       reply: result.text,
       model: usedModel,
       modelName: getModelDisplayName(usedModel),
@@ -258,29 +274,37 @@ export async function POST(req: Request) {
       fallbackUsed,
       ragUsed: contextResults.length > 0,
       contextCount: contextResults.length,
-    });
-  } catch (error: any) {
-    console.error('Error in chat route:', error);
-    return NextResponse.json(
-      { error: 'Failed to process chat request', details: error.message },
-      { status: 500 }
-    );
+    }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
   }
 }
 
 // GET endpoint to list available models
-export async function GET() {
-  return NextResponse.json({
-    models: ALL_MODELS,
-    default: DEFAULT_MODEL,
-    fallbackOrder: FALLBACK_ORDER,
-    providers: {
-      gemini: { configured: !!process.env.GEMINI_API_KEY },
-      openrouter: { configured: !!process.env.OPENROUTER_API_KEY },
-    },
-    features: {
-      rag: true,
-      logging: true,
-    }
-  });
+export async function GET(req: NextRequest) {
+  try {
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req);
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
+    return successResponse({
+      models: ALL_MODELS,
+      default: DEFAULT_MODEL,
+      fallbackOrder: FALLBACK_ORDER,
+      providers: {
+        gemini: { configured: !!process.env.GEMINI_API_KEY },
+        openrouter: { configured: !!process.env.OPENROUTER_API_KEY },
+      },
+      features: {
+        rag: true,
+        logging: true,
+      }
+    }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
+  }
 }

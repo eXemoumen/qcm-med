@@ -1,71 +1,119 @@
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+/**
+ * API route for knowledge base management
+ * Secured with admin access and rate limiting
+ */
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 import { addKnowledge } from '@/lib/rag';
+import {
+  requireAuthenticatedAdmin,
+  applyRateLimit,
+  validateBody,
+  sanitizeError,
+  errorResponse,
+  successResponse,
+} from '@/lib/security/api-utils';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+// Validation schemas
+const knowledgeEntrySchema = z.object({
+  title: z.string().min(1, 'Title is required').max(500, 'Title too long'),
+  content: z.string().min(1, 'Content is required').max(50000, 'Content too long'),
+  category: z.string().max(100, 'Category too long').optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+const knowledgeUpdateSchema = z.object({
+  id: z.string().uuid('Invalid ID format'),
+  title: z.string().min(1).max(500).optional(),
+  content: z.string().min(1).max(50000).optional(),
+  category: z.string().max(100).optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+const knowledgeIdSchema = z.object({
+  id: z.string().uuid('Invalid ID format'),
+});
 
 // GET: List all knowledge entries
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req);
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
-    
+
     let query = supabaseAdmin
       .from('knowledge_base')
       .select('id, title, content, category, metadata, created_at, updated_at')
       .order('created_at', { ascending: false });
-    
+
     if (category) {
       query = query.eq('category', category);
     }
-    
+
     const { data, error } = await query;
-    
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    
-    return NextResponse.json({ knowledge: data });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (error) throw error;
+
+    return successResponse({ knowledge: data }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
   }
 }
 
 // POST: Add new knowledge entry
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { title, content, category, metadata } = await req.json();
-    
-    if (!title || !content) {
-      return NextResponse.json(
-        { error: 'Title and content are required' },
-        { status: 400 }
-      );
-    }
-    
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req, 'write');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
+    // Validate input
+    const validationResult = await validateBody(req, knowledgeEntrySchema);
+    if (validationResult.error) return validationResult.error;
+
+    const { title, content, category, metadata } = validationResult.data;
+
     const result = await addKnowledge(title, content, category || 'general', metadata || {});
-    
+
     if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      return errorResponse(result.error || 'Failed to add knowledge', 500, rateLimitResult.headers);
     }
-    
-    return NextResponse.json({ success: true, id: result.id });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    return successResponse({ id: result.id }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
   }
 }
 
 // PUT: Update knowledge entry
-export async function PUT(req: Request) {
+export async function PUT(req: NextRequest) {
   try {
-    const { id, title, content, category, metadata } = await req.json();
-    
-    if (!id) {
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-    }
-    
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req, 'write');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
+    // Validate input
+    const validationResult = await validateBody(req, knowledgeUpdateSchema);
+    if (validationResult.error) return validationResult.error;
+
+    const { id, title, content, category, metadata } = validationResult.data;
+
     const { error } = await supabaseAdmin
       .from('knowledge_base')
       .update({
@@ -77,38 +125,44 @@ export async function PUT(req: Request) {
         embedding: null, // Clear embedding so it gets regenerated
       })
       .eq('id', id);
-    
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (error) throw error;
+
+    return successResponse({ success: true }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
   }
 }
 
 // DELETE: Remove knowledge entry
-export async function DELETE(req: Request) {
+export async function DELETE(req: NextRequest) {
   try {
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req, 'write');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    
-    if (!id) {
-      return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+    // Validate ID
+    const idValidation = knowledgeIdSchema.safeParse({ id });
+    if (!idValidation.success) {
+      return errorResponse('Invalid ID format', 400, rateLimitResult.headers);
     }
-    
+
     const { error } = await supabaseAdmin
       .from('knowledge_base')
       .delete()
       .eq('id', id);
-    
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (error) throw error;
+
+    return successResponse({ success: true }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
   }
 }

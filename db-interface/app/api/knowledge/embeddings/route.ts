@@ -1,17 +1,35 @@
-import { NextResponse } from 'next/server';
+/**
+ * API route for knowledge base embedding regeneration
+ * Secured with owner access (expensive operation)
+ */
+import { NextRequest } from 'next/server';
 import { updateAllEmbeddings } from '@/lib/rag';
+import {
+  requireAuthenticatedOwner,
+  applyRateLimit,
+  sanitizeError,
+  errorResponse,
+  successResponse,
+} from '@/lib/security/api-utils';
 
 // POST: Regenerate all embeddings
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
+    // Rate limiting - expensive operation
+    const rateLimitResult = await applyRateLimit(req, 'write');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - owner only (embedding regeneration is expensive)
+    const authResult = await requireAuthenticatedOwner(req);
+    if (authResult.error) return authResult.error;
+
     const result = await updateAllEmbeddings();
-    
-    return NextResponse.json({
-      success: true,
+
+    return successResponse({
       updated: result.updated,
       errors: result.errors,
-    });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    }, rateLimitResult.headers);
+  } catch (error) {
+    return errorResponse(sanitizeError(error), 500);
   }
 }

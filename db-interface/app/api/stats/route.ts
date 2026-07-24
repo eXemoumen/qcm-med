@@ -613,7 +613,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('[stats] API Error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch statistics' },
+      { error: 'Failed to fetch statistics' },
       { status: 500 }
     );
   }

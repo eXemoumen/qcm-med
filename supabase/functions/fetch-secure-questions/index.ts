@@ -139,9 +139,13 @@ Deno.serve(async (req: Request) => {
       console.error("[AuditLog] Failed to insert security audit log:", auditError.message, auditPayload);
     }
 
-    const encryptionKey = Deno.env.get("SECRET_PAYLOAD_KEY") || "default_dev_key_change_in_prod!";
-    if (!Deno.env.get("SECRET_PAYLOAD_KEY")) {
-      console.warn("[Config] SECRET_PAYLOAD_KEY not set, using fallback key. Set this in production!");
+    const encryptionKey = Deno.env.get("SECRET_PAYLOAD_KEY");
+    if (!encryptionKey) {
+      console.error("[Config] SECRET_PAYLOAD_KEY not set. Cannot encrypt response.");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
     
     // Return both questions correctly mapped and the count

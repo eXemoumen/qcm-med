@@ -1,37 +1,46 @@
 /**
  * Payment Status API
- * 
- * Check the status of a payment and retrieve the activation code if available.
+ *
+ * Check the status of a payment.
+ * Secured with authentication and rate limiting.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import {
+  requireAuthenticatedAdmin,
+  applyRateLimit,
+  sanitizeError,
+  errorResponse,
+  successResponse,
+  getSecurityHeaders,
+} from '@/lib/security/api-utils';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
-);
+// Validation schema
+const checkoutIdSchema = z.object({
+  checkout_id: z.string().min(1, 'checkout_id is required'),
+});
 
 export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const checkoutId = searchParams.get('checkout_id');
-  
-  if (!checkoutId) {
-    return NextResponse.json(
-      { error: 'checkout_id is required' },
-      { status: 400 }
-    );
-  }
-  
   try {
-    console.log('[Payment Status] Looking up checkout_id:', checkoutId);
-    
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(request);
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(request);
+    if (authResult.error) return authResult.error;
+
+    const searchParams = request.nextUrl.searchParams;
+    const checkoutId = searchParams.get('checkout_id');
+
+    // Validate checkout_id
+    const validation = checkoutIdSchema.safeParse({ checkout_id: checkoutId });
+    if (!validation.success) {
+      return errorResponse('checkout_id is required', 400, rateLimitResult.headers);
+    }
+
     const { data: payment, error } = await supabaseAdmin
       .from('online_payments')
       .select(`
@@ -40,43 +49,19 @@ export async function GET(request: NextRequest) {
       `)
       .eq('checkout_id', checkoutId)
       .single();
-    
-    if (error) {
-      console.log('[Payment Status] Query error:', error);
-      return NextResponse.json(
-        { error: 'Payment not found' },
-        { status: 404 }
-      );
+
+    if (error || !payment) {
+      return errorResponse('Payment not found', 404, rateLimitResult.headers);
     }
-    
-    if (!payment) {
-      console.log('[Payment Status] No payment found');
-      return NextResponse.json(
-        { error: 'Payment not found' },
-        { status: 404 }
-      );
-    }
-    
-    console.log('[Payment Status] Found payment:', {
-      id: payment.id,
-      status: payment.status,
-      activation_key_id: payment.activation_key_id,
-      activation_key: payment.activation_key,
-    });
-    
-    return NextResponse.json({
+
+    return successResponse({
       status: payment.status,
       customerEmail: payment.customer_email,
       amount: payment.amount,
       currency: payment.currency,
-      activationCode: payment.activation_key?.key_code || null,
       paidAt: payment.paid_at,
-    });
+    }, { ...rateLimitResult.headers, ...getSecurityHeaders() });
   } catch (error) {
-    console.error('[Payment Status] Error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch payment status' },
-      { status: 500 }
-    );
+    return errorResponse(sanitizeError(error), 500);
   }
 }

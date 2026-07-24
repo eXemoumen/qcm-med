@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
             : 500;
 
       return NextResponse.json(
-        { error: `Erreur lors du renvoi: ${resendError.message}` },
+        { error: 'Erreur lors du renvoi de l\'email de confirmation' },
         { status },
       );
     }

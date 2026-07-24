@@ -42,38 +42,33 @@ export async function POST(request: NextRequest) {
     // Get signature from header
     const signature = request.headers.get('signature');
     
-    // Get webhook secret - REQUIRED in production
+    // Get webhook secret - ALWAYS REQUIRED
     const webhookSecret = process.env.CHARGILY_WEBHOOK_SECRET;
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    // Verify signature
-    if (webhookSecret) {
-      if (!signature) {
-        console.error('[Chargily Webhook] Missing signature header');
-        return NextResponse.json(
-          { error: 'Missing signature' },
-          { status: 401, headers: getSecurityHeaders() }
-        );
-      }
-      
-      const isValid = await verifyWebhookSignature(rawBody, signature, webhookSecret);
-      if (!isValid) {
-        console.error('[Chargily Webhook] Invalid signature');
-        return NextResponse.json(
-          { error: 'Invalid signature' },
-          { status: 401, headers: getSecurityHeaders() }
-        );
-      }
-    } else if (isProduction) {
-      // In production, webhook secret is required
-      console.error('[Chargily Webhook] CHARGILY_WEBHOOK_SECRET not configured in production');
+
+    // Verify signature - always required for security
+    if (!webhookSecret) {
+      console.error('[Chargily Webhook] CHARGILY_WEBHOOK_SECRET not configured');
       return NextResponse.json(
         { error: 'Webhook not configured' },
         { status: 500, headers: getSecurityHeaders() }
       );
-    } else {
-      // Development mode warning
-      console.warn('[Chargily Webhook] WARNING: Signature verification skipped (development mode)');
+    }
+
+    if (!signature) {
+      console.error('[Chargily Webhook] Missing signature header');
+      return NextResponse.json(
+        { error: 'Missing signature' },
+        { status: 401, headers: getSecurityHeaders() }
+      );
+    }
+
+    const isValid = await verifyWebhookSignature(rawBody, signature, webhookSecret);
+    if (!isValid) {
+      console.error('[Chargily Webhook] Invalid signature');
+      return NextResponse.json(
+        { error: 'Invalid signature' },
+        { status: 401, headers: getSecurityHeaders() }
+      );
     }
     
     // Parse the webhook payload
@@ -313,7 +308,6 @@ async function handleCheckoutPaid(event: ChargilyWebhookEvent) {
   return NextResponse.json({
     received: true,
     success: true,
-    keyCode: keyCode,
   }, { headers: getSecurityHeaders() });
 }
 

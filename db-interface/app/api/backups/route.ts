@@ -1,13 +1,33 @@
-import { NextResponse } from 'next/server';
+/**
+ * API route for listing database backups
+ * Secured with owner access and rate limiting
+ */
+import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import {
+  requireAuthenticatedOwner,
+  applyRateLimit,
+  sanitizeError,
+  errorResponse,
+  successResponse,
+} from '@/lib/security/api-utils';
 
-export async function GET() {
+// GET: List all backup files
+export async function GET(req: NextRequest) {
   try {
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req, 'export');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - owner only (backups contain sensitive data)
+    const authResult = await requireAuthenticatedOwner(req);
+    if (authResult.error) return authResult.error;
+
     const backupDir = path.join(process.cwd(), '..', 'backups');
-    
+
     if (!fs.existsSync(backupDir)) {
-      return NextResponse.json([]);
+      return successResponse({ backups: [] }, rateLimitResult.headers);
     }
 
     const files = fs.readdirSync(backupDir);
@@ -24,9 +44,8 @@ export async function GET() {
       })
       .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
 
-    return NextResponse.json(sqlFiles);
+    return successResponse({ backups: sqlFiles }, rateLimitResult.headers);
   } catch (error) {
-    console.error("Error listing backups:", error);
-    return NextResponse.json({ error: "Failed to list backups" }, { status: 500 });
+    return errorResponse(sanitizeError(error), 500);
   }
 }

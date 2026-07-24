@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error('Error confirming email:', updateError);
       return NextResponse.json(
-        { error: `Erreur lors de la confirmation: ${updateError.message}` },
+        { error: 'Erreur lors de la confirmation' },
         { status: 500 },
       );
     }

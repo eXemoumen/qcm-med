@@ -1,74 +1,120 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+/**
+ * API route for device session management
+ * Secured with admin access and rate limiting
+ */
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import {
+  requireAuthenticatedAdmin,
+  applyRateLimit,
+  sanitizeError,
+  errorResponse,
+  successResponse,
+} from '@/lib/security/api-utils';
 
-export async function GET(request: NextRequest) {
+// Validation schemas
+const userIdSchema = z.object({
+  userId: z.string().uuid('Invalid user ID format'),
+});
+
+const deviceSessionSchema = z.object({
+  userId: z.string().uuid('Invalid user ID format'),
+  fingerprint: z.string().optional(),
+});
+
+// GET: List device sessions for a user
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID required' }, { status: 400 })
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req);
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get('userId');
+
+    // Validate userId
+    const userIdValidation = userIdSchema.safeParse({ userId });
+    if (!userIdValidation.success) {
+      return errorResponse('Invalid user ID format', 400, rateLimitResult.headers);
     }
-    
-    const { data: sessions, error } = await supabase
+
+    const { data: sessions, error } = await supabaseAdmin
       .from('device_sessions')
       .select('*')
       .eq('user_id', userId)
-      .order('last_active_at', { ascending: false })
-    
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    
-    return NextResponse.json({ sessions })
+      .order('last_active_at', { ascending: false });
+
+    if (error) throw error;
+
+    return successResponse({ sessions }, rateLimitResult.headers);
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return errorResponse(sanitizeError(error), 500);
   }
 }
 
-export async function POST(request: NextRequest) {
+// POST: Register or check device session
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { userId, fingerprint } = body
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID required' }, { status: 400 })
+    // Rate limiting
+    const rateLimitResult = await applyRateLimit(req, 'write');
+    if (rateLimitResult.error) return rateLimitResult.error;
+
+    // Authentication - admin only
+    const authResult = await requireAuthenticatedAdmin(req);
+    if (authResult.error) return authResult.error;
+
+    // Validate input
+    const validationResult = await (async () => {
+      try {
+        const body = await req.json();
+        return deviceSessionSchema.safeParse(body);
+      } catch {
+        return { success: false, error: { issues: [{ message: 'Invalid JSON body' }] } } as const;
+      }
+    })();
+
+    if (!validationResult.success) {
+      return errorResponse('Invalid request body', 400, rateLimitResult.headers);
     }
-    
+
+    const { userId, fingerprint } = validationResult.data;
+
     // Get existing sessions for this user
-    const { data: sessions, error } = await supabase
+    const { data: sessions, error } = await supabaseAdmin
       .from('device_sessions')
       .select('*')
-      .eq('user_id', userId)
-    
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-    
+      .eq('user_id', userId);
+
+    if (error) throw error;
+
     // Look for similar device based on fingerprint characteristics
-    // This is a simple implementation - you could make it more sophisticated
-    let matchingDeviceId = null
-    
+    let matchingDeviceId = null;
+
     if (fingerprint && sessions) {
       // Extract key characteristics from fingerprint
-      const fpParts = fingerprint.split('|')
-      const osName = fpParts[0]
-      const screenRes = fpParts[1]
-      
+      const fpParts = fingerprint.split('|');
+      const osName = fpParts[0];
+      const screenRes = fpParts[1];
+
       // Look for existing sessions with similar characteristics
       for (const session of sessions) {
-        const deviceId = session.device_id
-        
+        const deviceId = session.device_id;
+
         // Check if this might be the same device accessed via different platform
         if (deviceId.includes(osName.toLowerCase()) || deviceId.includes(screenRes)) {
-          matchingDeviceId = deviceId
-          break
+          matchingDeviceId = deviceId;
+          break;
         }
       }
     }
-    
-    return NextResponse.json({ matchingDeviceId })
+
+    return successResponse({ matchingDeviceId }, rateLimitResult.headers);
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return errorResponse(sanitizeError(error), 500);
   }
 }
