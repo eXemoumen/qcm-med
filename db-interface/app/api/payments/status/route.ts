@@ -14,8 +14,8 @@ import {
   sanitizeError,
   errorResponse,
   successResponse,
-  getSecurityHeaders,
 } from '@/lib/security/api-utils';
+import { getSecurityHeaders } from '@/lib/security/payment-security';
 
 // Validation schema
 const checkoutIdSchema = z.object({
