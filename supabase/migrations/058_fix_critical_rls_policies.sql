@@ -8,7 +8,8 @@
 -- Solution: Restrict to admin/owner only
 -- ============================================================================
 
--- Drop the overly permissive policy
+-- Drop ALL historical activation_keys UPDATE policies (including the live one from migration 020)
+DROP POLICY IF EXISTS "Update activation keys" ON public.activation_keys;
 DROP POLICY IF EXISTS "Allow key updates for activation" ON public.activation_keys;
 DROP POLICY IF EXISTS "Allow activation key updates" ON public.activation_keys;
 
@@ -37,7 +38,9 @@ CREATE POLICY "Admin activation key updates"
 -- Solution: Restrict to admin/owner only (service role bypasses RLS anyway)
 -- ============================================================================
 
--- Drop the overly permissive policy
+-- Drop ALL historical online_payments UPDATE policies (including the live one from migration 029)
+DROP POLICY IF EXISTS "Admins update payments" ON public.online_payments;
+DROP POLICY IF EXISTS "Admins can update payments" ON public.online_payments;
 DROP POLICY IF EXISTS "System can update payments" ON public.online_payments;
 
 -- Create a restrictive policy that only allows admin/owner to update
