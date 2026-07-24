@@ -8,16 +8,19 @@ import { supabase } from '@/lib/supabase';
 const HEALTH_TIMEOUT_MS = 5000;
 
 export async function GET() {
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+
   try {
     // Create an AbortSignal with timeout for the probe
     // AbortSignal.timeout is available in Node 18+ and modern runtimes
-    const signal = typeof AbortSignal.timeout === 'function'
-      ? AbortSignal.timeout(HEALTH_TIMEOUT_MS)
-      : (() => {
-          const controller = new AbortController();
-          setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
-          return controller.signal;
-        })();
+    let signal: AbortSignal;
+    if (typeof AbortSignal.timeout === 'function') {
+      signal = AbortSignal.timeout(HEALTH_TIMEOUT_MS);
+    } else {
+      const controller = new AbortController();
+      timerId = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+      signal = controller.signal;
+    }
 
     // Check database connectivity with timeout
     const { error } = await supabase
@@ -43,5 +46,7 @@ export async function GET() {
       },
       { status: 503 }
     );
+  } finally {
+    if (timerId) clearTimeout(timerId);
   }
 }

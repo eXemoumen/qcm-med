@@ -140,7 +140,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Return questions and count as plain JSON
-    // Protection is handled by TLS (in transit) and JWT authentication (at rest)
+    // Protection is handled by TLS (in transit), JWT (authentication), and RLS (authorization)
     return new Response(
       JSON.stringify({ data: questions || [], count: count || 0 }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -107,7 +107,7 @@ async function tryGeminiModel(
       clearTimeout(timer);
     }
   } catch (error: any) {
-    if (error.name === 'AbortError') {
+    if (error.name === 'AbortError' || (error.message && /abort|canceled|cancelled/i.test(error.message))) {
       return { success: false, error: 'timeout' };
     }
     const errorMessage = error.message || '';
@@ -247,6 +247,10 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch {
+      return errorResponse('Invalid JSON body', 400, rateLimitResult.headers);
+    }
+
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return errorResponse('Invalid JSON body', 400, rateLimitResult.headers);
     }
 

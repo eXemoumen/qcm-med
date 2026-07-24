@@ -111,15 +111,12 @@ export async function POST(req: NextRequest) {
         const deviceIdLower = deviceId.toLowerCase();
 
         // Check if this might be the same device accessed via different platform
+        // Screen resolution is only evaluated as an additional condition when OS matches
         if (osName && deviceIdLower.includes(osName.toLowerCase())) {
-          matchingDeviceId = deviceId;
-          break;
-        }
-
-        // Only check screen resolution if present in the fingerprint
-        if (screenRes && deviceId.includes(screenRes)) {
-          matchingDeviceId = deviceId;
-          break;
+          if (!screenRes || deviceId.includes(screenRes)) {
+            matchingDeviceId = deviceId;
+            break;
+          }
         }
       }
     }

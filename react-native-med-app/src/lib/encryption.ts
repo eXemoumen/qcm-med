@@ -47,6 +47,13 @@ export function decryptSecurePayload<T>(
     throw new Error('Invalid response format from Edge Function');
   } catch (error) {
     console.error('[Payload Error]:', error);
+    // Rethrow explicit format errors so callers can distinguish them
+    if (error instanceof Error && (
+      error.message.includes('Received encrypted response') ||
+      error.message.includes('Invalid response format')
+    )) {
+      throw error;
+    }
     throw new Error('Failed to process secure content.');
   }
 }
