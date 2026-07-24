@@ -77,7 +77,8 @@ Help medical students study more efficiently by providing:
 async function tryGeminiModel(
   modelId: string,
   message: string,
-  systemPrompt: string
+  systemPrompt: string,
+  timeoutMs: number
 ): Promise<{ success: boolean; text?: string; error?: string }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -87,7 +88,7 @@ async function tryGeminiModel(
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: modelId });
-    
+
     const chat = model.startChat({
       history: [
         { role: 'user', parts: [{ text: systemPrompt }] },
@@ -95,17 +96,27 @@ async function tryGeminiModel(
       ],
     });
 
-    const result = await chat.sendMessage(message);
-    const response = result.response;
-    return { success: true, text: response.text() };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const result = await chat.sendMessage(message, { signal: controller.signal });
+      const response = result.response;
+      return { success: true, text: response.text() };
+    } finally {
+      clearTimeout(timer);
+    }
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      return { success: false, error: 'timeout' };
+    }
     const errorMessage = error.message || '';
-    const isRateLimited = 
-      errorMessage.includes('429') || 
-      errorMessage.includes('quota') || 
+    const isRateLimited =
+      errorMessage.includes('429') ||
+      errorMessage.includes('quota') ||
       errorMessage.includes('rate') ||
       errorMessage.includes('Resource has been exhausted');
-    
+
     return { success: false, error: isRateLimited ? 'rate_limited' : errorMessage };
   }
 }
@@ -114,7 +125,8 @@ async function tryGeminiModel(
 async function tryOpenRouterModel(
   modelId: string,
   message: string,
-  systemPrompt: string
+  systemPrompt: string,
+  timeoutMs: number
 ): Promise<{ success: boolean; text?: string; error?: string }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
@@ -122,24 +134,33 @@ async function tryOpenRouterModel(
   }
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3005',
-        'X-Title': 'FMC App - Medical Education',
-      },
-      body: JSON.stringify({
-        model: modelId,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message },
-        ],
-        max_tokens: 2048,
-        temperature: 0.7,
-      }),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3005',
+          'X-Title': 'FMC App - Medical Education',
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message },
+          ],
+          max_tokens: 2048,
+          temperature: 0.7,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -162,27 +183,55 @@ async function tryOpenRouterModel(
 
     return { success: true, text };
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      return { success: false, error: 'timeout' };
+    }
     return { success: false, error: error.message || 'OpenRouter request failed' };
   }
 }
 
-// Try a model based on its provider
+// Per-model attempt timeout (30 seconds)
+const MODEL_TIMEOUT_MS = 30_000;
+
+// Try a model based on its provider, with a timeout deadline.
+// Wraps in Promise.race to enforce timeout even if the SDK ignores AbortSignal.
 async function tryModel(
   modelId: string,
   message: string,
-  systemPrompt: string
+  systemPrompt: string,
+  deadline: number
 ): Promise<{ success: boolean; text?: string; error?: string }> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    return { success: false, error: 'timeout' };
+  }
+
   const provider = getModelProvider(modelId);
-  
-  if (provider === 'gemini') {
-    return tryGeminiModel(modelId, message, systemPrompt);
-  } else {
-    return tryOpenRouterModel(modelId, message, systemPrompt);
+  const timeoutMs = Math.min(remaining, MODEL_TIMEOUT_MS);
+
+  const modelCall = provider === 'gemini'
+    ? tryGeminiModel(modelId, message, systemPrompt, timeoutMs)
+    : tryOpenRouterModel(modelId, message, systemPrompt, timeoutMs);
+
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) => {
+    timerId = setTimeout(() => resolve({ success: false, error: 'timeout' }), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([modelCall, timeoutPromise]);
+  } finally {
+    if (timerId) clearTimeout(timerId);
   }
 }
 
+// Total request deadline (90 seconds)
+const REQUEST_DEADLINE_MS = 90_000;
+
 export async function POST(req: NextRequest) {
   const startTime = Date.now();
+  const deadline = startTime + REQUEST_DEADLINE_MS;
 
   try {
     // Rate limiting
@@ -193,7 +242,15 @@ export async function POST(req: NextRequest) {
     const authResult = await requireAuthenticatedAdmin(req);
     if (authResult.error) return authResult.error;
 
-    const { message, model: requestedModel, autoFallback = true, enableRAG = true } = await req.json();
+    // Parse request body with explicit error handling
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse('Invalid JSON body', 400, rateLimitResult.headers);
+    }
+
+    const { message, model: requestedModel, autoFallback = true, enableRAG = true } = body;
 
     if (!message || typeof message !== 'string') {
       return errorResponse('Message is required', 400, rateLimitResult.headers);
@@ -223,7 +280,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Try the requested model first
-    let result = await tryModel(selectedModel, message, systemPrompt);
+    let result = await tryModel(selectedModel, message, systemPrompt, deadline);
     let usedModel = selectedModel;
 
     // If failed and auto-fallback is enabled, try other models
@@ -231,7 +288,13 @@ export async function POST(req: NextRequest) {
       for (const fallbackModel of FALLBACK_ORDER) {
         if (fallbackModel === selectedModel) continue;
 
-        result = await tryModel(fallbackModel, message, systemPrompt);
+        // Check deadline before each attempt
+        if (Date.now() >= deadline) {
+          result = { success: false, error: 'timeout' };
+          break;
+        }
+
+        result = await tryModel(fallbackModel, message, systemPrompt, deadline);
         usedModel = fallbackModel;
 
         if (result.success) {
@@ -244,15 +307,21 @@ export async function POST(req: NextRequest) {
     const fallbackUsed = usedModel !== selectedModel;
 
     if (!result.success) {
-      const errorMessage = result.error === 'rate_limited'
-        ? 'All models are currently rate limited. Please try again in a few minutes.'
-        : 'Failed to generate response';
+      let errorMessage: string;
+      let errorStatus: number;
 
-      return errorResponse(
-        errorMessage,
-        result.error === 'rate_limited' ? 429 : 500,
-        rateLimitResult.headers
-      );
+      if (result.error === 'rate_limited') {
+        errorMessage = 'All models are currently rate limited. Please try again in a few minutes.';
+        errorStatus = 429;
+      } else if (result.error === 'timeout') {
+        errorMessage = 'Request timed out. Please try again.';
+        errorStatus = 504;
+      } else {
+        errorMessage = 'Failed to generate response';
+        errorStatus = 500;
+      }
+
+      return errorResponse(errorMessage, errorStatus, rateLimitResult.headers);
     }
 
     // Log the interaction (async, don't wait)

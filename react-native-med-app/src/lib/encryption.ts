@@ -1,35 +1,52 @@
-import * as CryptoJS from 'crypto-js';
+/**
+ * Payload handling for Edge Function responses.
+ *
+ * The Edge Function now returns plain JSON over TLS, protected by:
+ * - TLS encryption in transit
+ * - JWT authentication (only authenticated users can call)
+ * - RLS policies (database-level access control)
+ *
+ * This module provides a thin wrapper to parse the response consistently.
+ */
 
-// The same secret key used in the Supabase Edge Function
-// Must be set in .env as EXPO_PUBLIC_SECRET_PAYLOAD_KEY
-const SECRET_PAYLOAD_KEY = process.env.EXPO_PUBLIC_SECRET_PAYLOAD_KEY;
+interface EdgeFunctionResponse<T> {
+  data: T;
+  count?: number;
+}
 
 /**
- * Decrypts a secure JSON payload received from the Edge Function
+ * Parses a JSON response from the Edge Function.
+ * Previously this decrypted AES-encrypted payloads, but encryption based on
+ * a build-time shared secret (EXPO_PUBLIC_SECRET_PAYLOAD_KEY) was removed
+ * because:
+ * 1. Public build-time secrets are extractable from the app bundle
+ * 2. TLS already protects data in transit
+ * 3. JWT auth already controls who can call the Edge Function
+ *
+ * @deprecated The `encryptedResponse` parameter name is kept for backward
+ * compatibility. The function now expects plain JSON.
  */
-export function decryptSecurePayload<T>(encryptedResponse: { cipherText: string }): T {
+export function decryptSecurePayload<T>(
+  response: { cipherText?: string; data?: T; count?: number } | EdgeFunctionResponse<T>
+): T {
   try {
-    if (!SECRET_PAYLOAD_KEY) {
-      throw new Error("EXPO_PUBLIC_SECRET_PAYLOAD_KEY not configured. Cannot decrypt payload.");
+    // If the response already has a `data` field, it's the new plain JSON format
+    if (response && 'data' in response && response.data !== undefined) {
+      return response.data as T;
     }
 
-    if (!encryptedResponse || !encryptedResponse.cipherText) {
-      throw new Error("Invalid encrypted payload format");
+    // Legacy: if cipherText is present, the Edge Function is still encrypting.
+    // This should not happen after the migration. Throw a clear error.
+    if (response && 'cipherText' in response && response.cipherText) {
+      throw new Error(
+        'Received encrypted response. The Edge Function should return plain JSON. ' +
+        'Ensure SECRET_PAYLOAD_KEY encryption has been removed from the Edge Function.'
+      );
     }
 
-    // Decrypt the AES cipher text
-    const bytes = CryptoJS.AES.decrypt(encryptedResponse.cipherText, SECRET_PAYLOAD_KEY);
-    const decryptedString = bytes.toString(CryptoJS.enc.Utf8);
-
-    if (!decryptedString) {
-      throw new Error("Decryption failed. Incorrect key or corrupted payload.");
-    }
-
-    // Parse the decrypted JSON string
-    const data = JSON.parse(decryptedString) as T;
-    return data;
+    throw new Error('Invalid response format from Edge Function');
   } catch (error) {
-    console.error("[Decryption Error]:", error);
-    throw new Error("Failed to decrypt secure content.");
+    console.error('[Payload Error]:', error);
+    throw new Error('Failed to process secure content.');
   }
 }

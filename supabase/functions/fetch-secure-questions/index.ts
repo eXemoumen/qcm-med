@@ -139,21 +139,12 @@ Deno.serve(async (req: Request) => {
       console.error("[AuditLog] Failed to insert security audit log:", auditError.message, auditPayload);
     }
 
-    const encryptionKey = Deno.env.get("SECRET_PAYLOAD_KEY");
-    if (!encryptionKey) {
-      console.error("[Config] SECRET_PAYLOAD_KEY not set. Cannot encrypt response.");
-      return new Response(
-        JSON.stringify({ error: "Server configuration error" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-    
-    // Return both questions correctly mapped and the count
-    const encryptedResponse = encryptData({ data: questions || [], count: count || 0 }, encryptionKey);
-
-    return new Response(JSON.stringify(encryptedResponse), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // Return questions and count as plain JSON
+    // Protection is handled by TLS (in transit) and JWT authentication (at rest)
+    return new Response(
+      JSON.stringify({ data: questions || [], count: count || 0 }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (error) {
     console.error("Function error:", error);
     return new Response(JSON.stringify({ error: "Internal Server Error" }), {

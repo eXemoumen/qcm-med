@@ -105,8 +105,19 @@ export async function POST(req: NextRequest) {
       for (const session of sessions) {
         const deviceId = session.device_id;
 
+        // Skip sessions with null/undefined device_id
+        if (!deviceId) continue;
+
+        const deviceIdLower = deviceId.toLowerCase();
+
         // Check if this might be the same device accessed via different platform
-        if (deviceId.includes(osName.toLowerCase()) || deviceId.includes(screenRes)) {
+        if (osName && deviceIdLower.includes(osName.toLowerCase())) {
+          matchingDeviceId = deviceId;
+          break;
+        }
+
+        // Only check screen resolution if present in the fingerprint
+        if (screenRes && deviceId.includes(screenRes)) {
           matchingDeviceId = deviceId;
           break;
         }

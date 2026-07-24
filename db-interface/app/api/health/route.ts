@@ -5,12 +5,25 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
+const HEALTH_TIMEOUT_MS = 5000;
+
 export async function GET() {
   try {
-    // Check database connectivity
+    // Create an AbortSignal with timeout for the probe
+    // AbortSignal.timeout is available in Node 18+ and modern runtimes
+    const signal = typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(HEALTH_TIMEOUT_MS)
+      : (() => {
+          const controller = new AbortController();
+          setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+          return controller.signal;
+        })();
+
+    // Check database connectivity with timeout
     const { error } = await supabase
       .from('users')
-      .select('id', { count: 'exact', head: true });
+      .select('id', { head: true })
+      .abortSignal(signal);
 
     if (error) throw error;
 
@@ -19,12 +32,14 @@ export async function GET() {
       timestamp: new Date().toISOString(),
       database: 'connected',
     });
-  } catch (error) {
+  } catch (error: any) {
+    // Handle abort/timeout errors as unhealthy
+    const isTimeout = error?.name === 'AbortError' || error?.message?.includes('timeout');
     return NextResponse.json(
       {
         status: 'error',
         timestamp: new Date().toISOString(),
-        database: 'disconnected',
+        database: isTimeout ? 'timeout' : 'disconnected',
       },
       { status: 503 }
     );
