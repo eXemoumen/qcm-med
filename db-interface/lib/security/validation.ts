@@ -92,6 +92,37 @@ export const paymentSchema = z.object({
   amount: z.number().positive('Amount must be positive').max(1000000),
 });
 
+// ============ Bulk Import Schemas ============
+export const bulkQuestionItemSchema = z.object({
+  year: z.enum(['1', '2', '3']),
+  module_name: z.string().min(1, 'Module name required').max(200),
+  sub_discipline: z.string().max(200).nullish(),
+  exam_type: z.enum(['EMD', 'EMD1', 'EMD2', 'Rattrapage']),
+  exam_year: z.number().int().min(2000).max(2100, "Année de l'examen (promo) est obligatoire"),
+  number: z.number().int().min(1).max(500),
+  question_text: z.string().min(1, 'Question text required').max(MAX_TEXT_LENGTH),
+  speciality: z.string().max(100).nullish(),
+  cours: z.array(z.string().max(200)).max(10).nullish(),
+  faculty_source: z
+    .enum([
+      'fac_mere',
+      'annexe_biskra',
+      'annexe_oum_el_bouaghi',
+      'annexe_khenchela',
+      'annexe_souk_ahras',
+    ])
+    .nullish(),
+  explanation: z.string().max(MAX_TEXT_LENGTH).nullish(),
+  answers: z
+    .array(answerSchema)
+    .min(2, 'At least 2 answers required')
+    .max(5, 'Maximum 5 answers allowed'),
+});
+
+export const bulkQuestionsSchema = z.object({
+  questions: z.array(bulkQuestionItemSchema).min(1, 'At least 1 question required').max(200, 'Maximum 200 questions per import'),
+});
+
 // ============ Type Exports ============
 export type CreateQuestionInput = z.infer<typeof createQuestionSchema>;
 export type UpdateQuestionInput = z.infer<typeof updateQuestionSchema>;

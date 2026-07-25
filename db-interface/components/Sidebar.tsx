@@ -11,6 +11,7 @@ const navigation = [
   { name: "Dashboard", href: "/", icon: "📊" },
   { name: "Modules", href: "/modules", icon: "📚" },
   { name: "Questions", href: "/questions", icon: "❓" },
+  { name: "Table Importer", href: "/table-importer", icon: "📥" },
   { name: "Historique", href: "/history", icon: "📜" },
   { name: "Ressources", href: "/resources", icon: "📁" },
   { name: "Santé Données", href: "/data-health", icon: "🩺" },
