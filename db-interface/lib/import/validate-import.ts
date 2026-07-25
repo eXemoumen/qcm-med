@@ -149,10 +149,15 @@ export function validateAnswers(
   }
 
   if (answers.length > 5) {
-    errors.push(`Maximum 5 réponses autorisées (trouvé : ${answers.length})`);
+    warnings.push(`Plus de 5 réponses détectées (${answers.length}) — les options supplémentaires seront ignorées`);
   }
 
-  // ── Check: at least one correct answer ──
+  // ── Fewer than 5 answers is a warning, not an error — admin can approve ──
+  if (answers.length >= 2 && answers.length < 5) {
+    warnings.push(`Question avec ${answers.length} réponses (sur 5 possibles) — approuvable par l'admin`);
+  }
+
+  // ── Check: at least one correct answer (hard error — cannot approve without it) ──
   const hasCorrect = answers.some((a) => a.is_correct === true);
   if (!hasCorrect) {
     errors.push('Au moins une réponse correcte est requise');
