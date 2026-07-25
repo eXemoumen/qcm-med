@@ -107,8 +107,11 @@ export function validateSubDiscipline(
   subDisc: string | undefined | null,
   moduleName: string,
   hasSubDisciplines: boolean
-): { valid: boolean; error?: string } {
+): { valid: boolean; warning?: string; error?: string } {
   if (!hasSubDisciplines) {
+    if (subDisc && subDisc.trim()) {
+      return { valid: true, warning: `Sous-discipline "${subDisc}" ignorée — le module "${moduleName}" n'est pas un UEI` };
+    }
     return { valid: true };
   }
   // UEI module — sub_discipline is required
@@ -309,7 +312,8 @@ export function validateFullQuestion(
       errors.push(`Texte de la question trop long (${questionText.length} > ${MAX_QUESTION_TEXT_LENGTH})`);
     }
     // Check for garbled text (common in bad CSV encoding)
-    if (/[^\x20-\x7EÀ-ɏ؀-ۿЀ-ӿ\s\n\r.,;:!?()\-'"éèêëàâäùûüôöîïçœæ]/.test(questionText)) {
+    // Allow: ASCII, Latin Extended, Arabic, Cyrillic, French typographic chars (curly quotes, em/en dash, guillemets, ellipsis, degree)
+    if (/[^\x20-\x7EÀ-ɏ؀-ۿЀ-ӿ‘’“”–—«»…°≥\s\n\r.,;:!?()\-'"éèêëàâäùûüôöîïçœæ]/.test(questionText)) {
       warnings.push('Le texte contient des caractères inhabituels — vérifiez l\'encodage du fichier');
     }
   }
@@ -336,6 +340,8 @@ export function validateFullQuestion(
       );
       if (!subVal.valid) {
         errors.push(subVal.error!);
+      } else if (subVal.warning) {
+        warnings.push(subVal.warning);
       }
     }
   }

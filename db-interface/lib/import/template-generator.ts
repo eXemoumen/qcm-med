@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from '@e965/xlsx';
 import { PREDEFINED_MODULES } from '@/lib/predefined-modules';
 
 const EXCEL_HEADERS = [
@@ -47,12 +47,12 @@ const SAMPLE_ROWS = [
     promo: 2024,
     numéro: 1,
     question: 'Le canal cholédoque passe derrière le premier duodénum et se termine dans :',
-    réponse_a: 'Leodenum',
-    réponse_b: 'Le duodénum',
-    réponse_c: "L'estomac",
-    réponse_d: 'La rate',
-    réponse_e: 'Le mésentère',
-    réponses_correctes: 'A,B',
+    réponse_a: 'Le duodénum',
+    réponse_b: "L'estomac",
+    réponse_c: 'La rate',
+    réponse_d: 'Le mésentère',
+    réponse_e: 'Le foie',
+    réponses_correctes: 'A',
     cours: 'Anatomie digestive',
     source: 'fac_mere',
     explication: '',
@@ -256,6 +256,11 @@ export function downloadJsonTemplate(): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = 'template_questions.json';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  // Defer cleanup so browser has time to start the download
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 200);
 }

@@ -102,7 +102,13 @@ export default function TableImporterPage() {
   const handleEdit = (index: number) => {
     if (!importResult) return;
     setEditingIndex(index);
-    setEditData({ ...importResult.questions[index].data });
+    // Deep copy to avoid mutating importResult
+    const src = importResult.questions[index].data;
+    setEditData({
+      ...src,
+      cours: src.cours ? [...src.cours] : undefined,
+      answers: src.answers.map((a) => ({ ...a })),
+    });
   };
 
   const handleSaveEdit = () => {
@@ -434,12 +440,14 @@ export default function TableImporterPage() {
                           >
                             <X className="w-4 h-4" /> Rejeter
                           </button>
-                          <button
-                            onClick={() => handleApprove(idx)}
-                            className="px-4 py-2 bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400 rounded-brand-lg text-sm font-bold hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors flex items-center gap-2"
-                          >
-                            <Check className="w-4 h-4" /> Approuver
-                          </button>
+                          {q.errors.length === 0 && (
+                            <button
+                              onClick={() => handleApprove(idx)}
+                              className="px-4 py-2 bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400 rounded-brand-lg text-sm font-bold hover:bg-green-100 dark:hover:bg-green-900/20 transition-colors flex items-center gap-2"
+                            >
+                              <Check className="w-4 h-4" /> Approuver
+                            </button>
+                          )}
                         </>
                       )}
                       {q.status === 'approved' && (

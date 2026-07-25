@@ -1,7 +1,8 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from '@e965/xlsx';
 import type { CreateQuestionData } from '@/lib/api/questions';
 import type { ImportedQuestion, ImportResult } from '@/types/bulk-import';
 import { validateFullQuestion, getDuplicateKey } from './validate-import';
+import { parseCorrectAnswers } from './parse-correct-answers';
 
 const HEADER_MAP: Record<string, keyof CreateQuestionData | 'answer_a' | 'answer_b' | 'answer_c' | 'answer_d' | 'answer_e' | 'correct_answers'> = {
   'année': 'year',
@@ -63,18 +64,6 @@ function mapHeader(raw: string): string | null {
     if (normalizeHeader(key) === normalized) return value;
   }
   return null;
-}
-
-function parseCorrectAnswers(raw: string): string[] {
-  if (!raw || !raw.trim()) return [];
-  const cleaned = raw.replace(/\s/g, '').toUpperCase();
-  if (cleaned.length <= 5 && /^[A-E,]+$/.test(cleaned)) {
-    if (cleaned.includes(',')) {
-      return cleaned.split(',').filter((c) => /^[A-E]$/.test(c));
-    }
-    return cleaned.split('').filter((c) => /^[A-E]$/.test(c));
-  }
-  return [];
 }
 
 function parseCours(raw: string): string[] {
@@ -208,7 +197,8 @@ export function parseExcel(file: File): Promise<ImportResult> {
 
         // ── Parse each row ──
         const questions: ImportedQuestion[] = [];
-        const duplicateKeysInFile = new Map<string, number[]>(); // key → row indices
+        const duplicateKeysInFile = new Map<string, number[]>();
+        let headerWarningsEmitted = false;
 
         for (let i = 0; i < jsonData.length; i++) {
           const rawRow = jsonData[i];
@@ -268,14 +258,15 @@ export function parseExcel(file: File): Promise<ImportResult> {
             errors.push(`Impossible de parser le numéro de question : "${mapped.number}"`);
           }
 
-          // Check for unmapped critical headers
-          if (i === 0 && missingCritical.length > 0) {
-            warnings.push(`Colonnes critiques non reconnues : ${missingCritical.join(', ')} — utilisez le template`);
-          }
-
-          // Check for unrecognized headers
-          if (i === 0 && unmappedHeaders.length > 0) {
-            warnings.push(`Colonnes ignorées : ${unmappedHeaders.join(', ')}`);
+          // Emit header warnings on first non-empty row
+          if (!headerWarningsEmitted) {
+            headerWarningsEmitted = true;
+            if (missingCritical.length > 0) {
+              warnings.push(`Colonnes critiques non reconnues : ${missingCritical.join(', ')} — utilisez le template`);
+            }
+            if (unmappedHeaders.length > 0) {
+              warnings.push(`Colonnes ignorées : ${unmappedHeaders.join(', ')}`);
+            }
           }
 
           // ── In-file duplicate detection ──

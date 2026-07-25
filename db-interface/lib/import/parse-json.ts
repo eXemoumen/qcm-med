@@ -1,6 +1,7 @@
 import type { CreateQuestionData } from '@/lib/api/questions';
 import type { ImportedQuestion, ImportResult } from '@/types/bulk-import';
 import { validateFullQuestion, getDuplicateKey } from './validate-import';
+import { parseCorrectAnswers } from './parse-correct-answers';
 
 interface ExportFormatQuestion {
   year?: number | string;
@@ -54,18 +55,6 @@ function isExportFormat(q: Record<string, unknown>): boolean {
 
 function isFlatFormat(q: Record<string, unknown>): boolean {
   return 'answer_a' in q || 'answer_b' in q || 'correct_answers' in q;
-}
-
-function parseCorrectAnswers(raw: string): string[] {
-  if (!raw || !raw.trim()) return [];
-  const cleaned = raw.replace(/\s/g, '').toUpperCase();
-  if (cleaned.length <= 5 && /^[A-E,]+$/.test(cleaned)) {
-    if (cleaned.includes(',')) {
-      return cleaned.split(',').filter((c) => /^[A-E]$/.test(c));
-    }
-    return cleaned.split('').filter((c) => /^[A-E]$/.test(c));
-  }
-  return [];
 }
 
 function safeParseInt(val: unknown): number {

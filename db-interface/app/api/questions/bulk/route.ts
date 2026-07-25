@@ -17,7 +17,6 @@ import {
 import { bulkQuestionsSchema } from '@/lib/security/validation';
 import { PREDEFINED_MODULES } from '@/lib/predefined-modules';
 
-// Structured combo key — no pipe-delimited strings
 interface ComboKey {
   year: string;
   module_name: string;
@@ -34,6 +33,10 @@ function comboKeyFromQ(q: { year: string; module_name: string; sub_discipline?: 
   return { year: q.year, module_name: q.module_name, sub_discipline: q.sub_discipline || '', exam_type: q.exam_type, exam_year: q.exam_year };
 }
 
+function questionNaturalKey(q: { year: string; module_name: string; sub_discipline?: string | null; exam_type: string; exam_year: number; number: number }): string {
+  return `${comboKeyStr(comboKeyFromQ(q))}|${q.number}`;
+}
+
 const CHUNK_SIZE = 50;
 
 export async function POST(request: NextRequest) {
@@ -41,19 +44,25 @@ export async function POST(request: NextRequest) {
   const LOG_SOURCE = 'api/questions/bulk/POST';
 
   try {
-    // Apply rate limiting for export operations (10/min)
     const rateLimitResult = await applyRateLimit(request, 'export');
     if (rateLimitResult.error) return rateLimitResult.error;
 
-    // Require authenticated admin (auth once)
     const authResult = await requireAuthenticatedAdmin(request);
     if (authResult.error) return authResult.error;
 
-    // Validate request body (max 200 enforced by schema)
     const bodyResult = await validateBody(request, bulkQuestionsSchema);
     if (bodyResult.error) return bodyResult.error;
 
     const { questions } = bodyResult.data;
+
+    // Normalize answers: ensure display_order and is_correct are always set
+    for (const q of questions) {
+      q.answers = q.answers.map((a, i) => ({
+        ...a,
+        display_order: a.display_order || i + 1,
+        is_correct: typeof a.is_correct === 'boolean' ? a.is_correct : false,
+      }));
+    }
 
     logger.info('Bulk import started', {
       source: LOG_SOURCE,
@@ -61,7 +70,7 @@ export async function POST(request: NextRequest) {
       metadata: { questionCount: questions.length },
     });
 
-    // ── Pre-flight: Validate courses exist ──────────────────────────────
+    // ── Pre-flight: courses ──
     const allCourseNames = new Set<string>();
     for (const q of questions) {
       if (q.cours) {
@@ -90,7 +99,7 @@ export async function POST(request: NextRequest) {
       missingCourses = Array.from(allCourseNames).filter((name) => !existingNames.has(name));
     }
 
-    // ── Pre-flight: Check duplicate question numbers ────────────────────
+    // ── Pre-flight: DB duplicates ──
     const uniqueCombos = new Map<string, { key: ComboKey; numbers: Set<number> }>();
     for (const q of questions) {
       const key = comboKeyFromQ(q);
@@ -101,7 +110,7 @@ export async function POST(request: NextRequest) {
       uniqueCombos.get(keyStr)!.numbers.add(q.number);
     }
 
-    const duplicateNumbersMap = new Map<string, number[]>();
+    const dbDuplicateMap = new Map<string, Set<number>>();
     for (const [, { key, numbers }] of uniqueCombos) {
       let query = supabaseAdmin
         .from('questions')
@@ -126,11 +135,13 @@ export async function POST(request: NextRequest) {
         return errorResponse('Failed to check duplicate questions', 500, rateLimitResult.headers);
       }
       if (existing && existing.length > 0) {
-        duplicateNumbersMap.set(comboKeyStr(key), existing.map((q: any) => q.number));
+        dbDuplicateMap.set(comboKeyStr(key), new Set(existing.map((q: any) => q.number)));
       }
     }
 
-    // ── Insert questions in chunks ──────────────────────────────────────
+    // ── In-request duplicate tracking (updated as each question is validated) ──
+    const seenNumbers = new Map<string, Set<number>>(); // comboKey → numbers seen so far
+
     const results: {
       index: number;
       status: 'saved' | 'error' | 'skipped';
@@ -140,13 +151,11 @@ export async function POST(request: NextRequest) {
 
     let saved = 0;
     let failed = 0;
-    let skipped = 0;
 
     for (let chunkStart = 0; chunkStart < questions.length; chunkStart += CHUNK_SIZE) {
       const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, questions.length);
       const chunk = questions.slice(chunkStart, chunkEnd);
 
-      // Pre-validate chunk: courses + duplicates
       const validIndices: number[] = [];
       for (let ci = 0; ci < chunk.length; ci++) {
         const i = chunkStart + ci;
@@ -162,21 +171,32 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Check duplicate number
-        const comboKey = comboKeyStr(comboKeyFromQ(q));
-        const existingNumbers = duplicateNumbersMap.get(comboKey) || [];
-        if (existingNumbers.includes(q.number)) {
-          results.push({ index: i, status: 'error', error: `Question #${q.number} already exists for this module/exam` });
+        // Check DB duplicates
+        const ck = comboKeyStr(comboKeyFromQ(q));
+        const dbNums = dbDuplicateMap.get(ck);
+        if (dbNums && dbNums.has(q.number)) {
+          results.push({ index: i, status: 'error', error: `Question #${q.number} already exists in database` });
           failed++;
           continue;
         }
+
+        // Check in-request duplicates (numbers seen during this request)
+        const seenNums = seenNumbers.get(ck);
+        if (seenNums && seenNums.has(q.number)) {
+          results.push({ index: i, status: 'error', error: `Question #${q.number} is duplicated within this import` });
+          failed++;
+          continue;
+        }
+
+        // Track this number as seen BEFORE proceeding to insert
+        if (!seenNumbers.has(ck)) seenNumbers.set(ck, new Set());
+        seenNumbers.get(ck)!.add(q.number);
 
         validIndices.push(ci);
       }
 
       if (validIndices.length === 0) continue;
 
-      // Batch insert valid questions
       const validQuestions = validIndices.map((ci) => {
         const q = chunk[ci];
         const mod = PREDEFINED_MODULES.find((m) => m.name === q.module_name && m.year === q.year);
@@ -212,17 +232,18 @@ export async function POST(request: NextRequest) {
         .select();
 
       if (batchQuestionError) {
-        // Batch insert failed — fall back to per-question inserts
+        // Fallback: per-question inserts
         logger.warn('Batch question insert failed, falling back to per-question', {
           source: LOG_SOURCE,
           metadata: { error: batchQuestionError.message, chunkSize: validQuestions.length },
         });
 
-        for (const vq of validQuestions) {
+        for (let vi = 0; vi < validQuestions.length; vi++) {
+          const vq = validQuestions[vi];
           try {
             const { data: newQ, error: qErr } = await supabaseAdmin
               .from('questions')
-              .insert(questionRows[validQuestions.indexOf(vq)])
+              .insert(questionRows[vi])
               .select()
               .single();
 
@@ -241,17 +262,13 @@ export async function POST(request: NextRequest) {
             if (ansErr) {
               const { error: delErr } = await supabaseAdmin.from('questions').delete().eq('id', newQ.id);
               if (delErr) {
-                logger.error('Rollback failed after answers insert error', {
+                logger.error('Rollback failed', {
                   source: LOG_SOURCE,
                   metadata: { questionId: newQ.id, rollbackError: delErr.message, originalError: ansErr.message },
                 });
               }
               throw ansErr;
             }
-
-            const ck = comboKeyStr(comboKeyFromQ(vq.data));
-            if (!duplicateNumbersMap.has(ck)) duplicateNumbersMap.set(ck, []);
-            duplicateNumbersMap.get(ck)!.push(vq.data.number);
 
             results.push({ index: vq.globalIndex, status: 'saved', questionId: newQ.id });
             saved++;
@@ -263,20 +280,30 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Batch insert succeeded — now batch insert answers
+      // Batch succeeded — match returned rows by natural key
       if (!insertedQuestions || insertedQuestions.length === 0) continue;
 
+      // Build a map from natural key → returned question id
+      const returnedByKey = new Map<string, string>();
+      for (const rq of insertedQuestions) {
+        const nk = `${rq.year}|${rq.module_name}|${rq.sub_discipline || ''}|${rq.exam_type}|${rq.exam_year}|${rq.number}`;
+        returnedByKey.set(nk, rq.id);
+      }
+
+      // Associate answers with questions by natural key
       const allAnswers: { question_id: string; option_label: string; answer_text: string; is_correct: boolean; display_order: number }[] = [];
-      const questionIdMap = new Map<number, string>(); // localIndex → question id
+      const unresolvedQuestions: typeof validQuestions = [];
 
-      for (let ai = 0; ai < validQuestions.length; ai++) {
-        const vq = validQuestions[ai];
-        const newQ = insertedQuestions[ai];
-        questionIdMap.set(vq.localIndex, newQ.id);
-
+      for (const vq of validQuestions) {
+        const nk = questionNaturalKey(vq.data);
+        const qId = returnedByKey.get(nk);
+        if (!qId) {
+          unresolvedQuestions.push(vq);
+          continue;
+        }
         for (const a of vq.data.answers) {
           allAnswers.push({
-            question_id: newQ.id,
+            question_id: qId,
             option_label: a.option_label,
             answer_text: a.answer_text,
             is_correct: a.is_correct,
@@ -285,10 +312,15 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Handle unresolved questions — mark as error
+      for (const vq of unresolvedQuestions) {
+        results.push({ index: vq.globalIndex, status: 'error', error: 'Question not found in batch response' });
+        failed++;
+      }
+
       const { error: batchAnswersError } = await supabaseAdmin.from('answers').insert(allAnswers);
 
       if (batchAnswersError) {
-        // Rollback: delete all questions in this chunk
         const insertedIds = insertedQuestions.map((q) => q.id);
         const { error: rollbackError } = await supabaseAdmin
           .from('questions')
@@ -296,13 +328,12 @@ export async function POST(request: NextRequest) {
           .in('id', insertedIds);
 
         if (rollbackError) {
-          logger.error('Batch rollback failed after answers insert error', {
+          logger.error('Batch rollback failed', {
             source: LOG_SOURCE,
             metadata: { questionIds: insertedIds, rollbackError: rollbackError.message, originalError: batchAnswersError.message },
           });
         }
 
-        // Mark all as errors
         for (const vq of validQuestions) {
           results.push({ index: vq.globalIndex, status: 'error', error: sanitizeError(batchAnswersError) });
           failed++;
@@ -310,13 +341,11 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // All succeeded — record results and update duplicate tracking
+      // All succeeded
       for (const vq of validQuestions) {
-        const qId = questionIdMap.get(vq.localIndex)!;
-        const ck = comboKeyStr(comboKeyFromQ(vq.data));
-        if (!duplicateNumbersMap.has(ck)) duplicateNumbersMap.set(ck, []);
-        duplicateNumbersMap.get(ck)!.push(vq.data.number);
-
+        const nk = questionNaturalKey(vq.data);
+        const qId = returnedByKey.get(nk);
+        if (!qId) continue; // already reported as error above
         results.push({ index: vq.globalIndex, status: 'saved', questionId: qId });
         saved++;
       }
@@ -327,7 +356,7 @@ export async function POST(request: NextRequest) {
     logger.info('Bulk import completed', {
       source: LOG_SOURCE,
       userId: authResult.user.id,
-      metadata: { total: questions.length, saved, failed, skipped, durationMs },
+      metadata: { total: questions.length, saved, failed, durationMs },
     });
 
     return successResponse(
@@ -335,7 +364,7 @@ export async function POST(request: NextRequest) {
         total: questions.length,
         saved,
         failed,
-        skipped,
+        skipped: 0,
         missingCourses: missingCourses.length > 0 ? missingCourses : undefined,
         results,
       },
