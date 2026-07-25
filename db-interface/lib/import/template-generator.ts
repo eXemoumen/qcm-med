@@ -146,7 +146,14 @@ export function downloadExcelTemplate(): void {
   instructionsSheet['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 60 }, { wch: 40 }, { wch: 25 }];
   XLSX.utils.book_append_sheet(wb, instructionsSheet, 'Instructions');
 
-  // ── Sheet 2: Questions ──
+  // ── Helper Sheet: Module Names (for dropdown validation) ──
+  const moduleNames = getModuleNames();
+  const moduleSheetData = moduleNames.map((name) => [name]);
+  const moduleSheet = XLSX.utils.aoa_to_sheet(moduleSheetData);
+  moduleSheet['!cols'] = [{ wch: 50 }];
+  XLSX.utils.book_append_sheet(wb, moduleSheet, 'Modules');
+
+  // ── Sheet 3: Questions ──
   const headerRow = EXCEL_HEADERS.map((h) => h.label);
   const sampleRows = SAMPLE_ROWS.map((row) =>
     EXCEL_HEADERS.map((h) => {
@@ -165,19 +172,20 @@ export function downloadExcelTemplate(): void {
   const yearOptions = '"1,2,3"';
   const examTypeOptions = '"EMD,EMD1,EMD2,Rattrapage"';
   const sourceOptions = '"fac_mere,annexe_biskra,annexe_oum_el_bouaghi,annexe_khenchela,annexe_souk_ahras"';
-  const moduleOptions = `"${getModuleNames().join(',')}"`;
+  // Module dropdown references the Modules helper sheet (avoids 255-char inline limit)
+  const moduleLastRow = moduleNames.length;
+  const moduleFormula = `Modules!$A$1:$A$${moduleLastRow}`;
 
-  const range: XLSX.Range = {
-    s: { r: 1, c: 0 },
-    e: { r: 1000, c: 0 },
-  };
-
-  // Year validation (column A)
   questionsSheet['!dataValidations'] = [
     {
       sqref: `A2:A1000`,
       type: 'list',
       formula1: yearOptions,
+    },
+    {
+      sqref: `B2:B1000`,
+      type: 'list',
+      formula1: moduleFormula,
     },
     {
       sqref: `D2:D1000`,

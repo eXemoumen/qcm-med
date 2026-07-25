@@ -98,7 +98,7 @@ export const bulkQuestionItemSchema = z.object({
   module_name: z.string().min(1, 'Module name required').max(200),
   sub_discipline: z.string().max(200).nullish(),
   exam_type: z.enum(['EMD', 'EMD1', 'EMD2', 'Rattrapage']),
-  exam_year: z.number().int().min(2000).max(2100, "Année de l'examen (promo) est obligatoire"),
+  exam_year: z.number().int().min(2000, "Année de l'examen (promo) est obligatoire").max(2100, "Année de l'examen ne peut pas dépasser 2100"),
   number: z.number().int().min(1).max(500),
   question_text: z.string().min(1, 'Question text required').max(MAX_TEXT_LENGTH),
   speciality: z.string().max(100).nullish(),
@@ -116,7 +116,10 @@ export const bulkQuestionItemSchema = z.object({
   answers: z
     .array(answerSchema)
     .min(2, 'At least 2 answers required')
-    .max(5, 'Maximum 5 answers allowed'),
+    .max(5, 'Maximum 5 answers allowed')
+    .refine((answers) => answers.some((a) => a.is_correct), {
+      message: 'At least one answer must be correct',
+    }),
 });
 
 export const bulkQuestionsSchema = z.object({

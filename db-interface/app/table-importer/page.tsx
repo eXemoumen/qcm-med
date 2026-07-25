@@ -6,7 +6,9 @@ import type { ImportedQuestion, ImportResult, BulkSaveResult } from '@/types/bul
 import { parseExcel } from '@/lib/import/parse-excel';
 import { parseJson } from '@/lib/import/parse-json';
 import { downloadExcelTemplate, downloadJsonTemplate } from '@/lib/import/template-generator';
+import { validateFullQuestion } from '@/lib/import/validate-import';
 import { supabase } from '@/lib/supabase';
+import { UploadCloud, FileSpreadsheet, FileJson, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, Download, RefreshCw, Save, Edit2, Undo2, Check, X, FileOutput } from 'lucide-react';
 
 type Phase = 'upload' | 'review' | 'saving' | 'results';
 
@@ -18,7 +20,6 @@ export default function TableImporterPage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [saveResult, setSaveResult] = useState<BulkSaveResult | null>(null);
   const [saving, setSaving] = useState(false);
-  const [saveProgress, setSaveProgress] = useState({ current: 0, total: 0 });
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editData, setEditData] = useState<CreateQuestionData | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -106,14 +107,16 @@ export default function TableImporterPage() {
 
   const handleSaveEdit = () => {
     if (editingIndex === null || !editData || !importResult) return;
+    // Revalidate edited question
+    const { errors, warnings } = validateFullQuestion(editData);
     const updated = { ...importResult };
     updated.questions = [...updated.questions];
     updated.questions[editingIndex] = {
       ...updated.questions[editingIndex],
       data: editData,
-      status: 'approved',
-      errors: [],
-      warnings: [],
+      status: errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'approved',
+      errors,
+      warnings,
     };
     setImportResult(updated);
     setEditingIndex(null);
@@ -127,7 +130,6 @@ export default function TableImporterPage() {
 
     setSaving(true);
     setPhase('saving');
-    setSaveProgress({ current: 0, total: approved.length });
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -170,7 +172,7 @@ export default function TableImporterPage() {
   const approvedCount = importResult?.questions.filter((q) => q.status === 'approved').length || 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="min-h-screen bg-neutral-light dark:bg-neutral-dark font-body">
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
@@ -178,10 +180,10 @@ export default function TableImporterPage() {
             href="/questions"
             className="text-sm text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors mb-3 inline-flex items-center gap-1"
           >
-            ← Retour aux Questions
+            <ArrowLeft className="w-4 h-4" /> Retour aux Questions
           </a>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-3">
-            <span className="text-3xl">📥</span>
+          <h1 className="text-3xl font-heading font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary flex items-center gap-3">
+            <UploadCloud className="w-8 h-8 text-primary" />
             Table Importer
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
@@ -198,23 +200,24 @@ export default function TableImporterPage() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => fileInputRef.current?.click()}
-              className={`bg-white dark:bg-slate-900 rounded-3xl border-2 border-dashed p-12 text-center cursor-pointer transition-all ${
+              className={`bg-white dark:bg-[#1a1a1a] rounded-brand-lg border-2 border-dashed p-12 text-center cursor-pointer transition-all shadow-sm ${
                 dragOver
-                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/10'
-                  : 'border-slate-200 dark:border-white/10 hover:border-primary-400 dark:hover:border-primary-500'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-slate-300 dark:border-white/10 hover:border-primary/50'
               }`}
             >
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.csv,.json"
+                aria-label="Choisir un fichier Excel ou JSON à importer"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) handleFileSelect(f);
                 }}
-                className="hidden"
+                className="sr-only"
               />
-              <div className="text-5xl mb-4">📄</div>
+              <div className="flex justify-center mb-4 text-primary"><UploadCloud className="w-12 h-12" /></div>
               <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
                 {file ? file.name : 'Glissez-déposez votre fichier ici'}
               </p>
@@ -227,7 +230,7 @@ export default function TableImporterPage() {
 
             {/* Parse Error */}
             {parseError && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-4 text-red-700 dark:text-red-300 text-sm">
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-brand-lg p-4 text-red-700 dark:text-red-300 text-sm">
                 ❌ {parseError}
               </div>
             )}
@@ -238,22 +241,22 @@ export default function TableImporterPage() {
                 <button
                   onClick={handleParse}
                   disabled={parsing}
-                  className="px-6 py-3 bg-primary-600 text-white rounded-2xl hover:bg-primary-700 font-bold shadow-lg shadow-primary-500/20 active:scale-[0.98] transition-all disabled:opacity-50"
+                  className="px-6 py-3 bg-primary text-white rounded-brand-lg hover:bg-primary-600 font-bold shadow-lg shadow-primary/20 active:scale-[0.98] transition-all disabled:opacity-50"
                 >
-                  {parsing ? '⏳ Analyse en cours...' : '🔍 Analyser le fichier'}
+                  <span className="flex items-center gap-2">{parsing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}{parsing ? 'Analyse en cours...' : 'Analyser le fichier'}</span>
                 </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); downloadExcelTemplate(); }}
-                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-2xl hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
+                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-brand-lg hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
               >
-                📥 Template Excel
+                <Download className="w-4 h-4" /> Template Excel
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); downloadJsonTemplate(); }}
-                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-2xl hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
+                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-brand-lg hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
               >
-                📥 Template JSON
+                <Download className="w-4 h-4" /> Template JSON
               </button>
             </div>
           </div>
@@ -263,26 +266,26 @@ export default function TableImporterPage() {
         {phase === 'review' && importResult && (
           <div className="space-y-6">
             {/* Stats Bar */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/5 p-5 shadow-sm">
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 p-5 shadow-sm">
               <div className="flex flex-wrap items-center gap-4 text-sm font-bold">
                 <span className="text-slate-900 dark:text-white">
                   {importResult.total} total
                 </span>
                 <span className="text-green-600 dark:text-green-400">
-                  ✅ {importResult.valid} valide{importResult.valid > 1 ? 's' : ''}
+                  <CheckCircle2 className="w-4 h-4 inline mr-1" /> {importResult.valid} valide{importResult.valid > 1 ? 's' : ''}
                 </span>
                 {importResult.warnings > 0 && (
                   <span className="text-amber-600 dark:text-amber-400">
-                    ⚠️ {importResult.warnings} avertissement{importResult.warnings > 1 ? 's' : ''}
+                    <AlertTriangle className="w-4 h-4 inline mr-1" /> {importResult.warnings} avertissement{importResult.warnings > 1 ? 's' : ''}
                   </span>
                 )}
                 {importResult.errors > 0 && (
                   <span className="text-red-600 dark:text-red-400">
-                    ❌ {importResult.errors} erreur{importResult.errors > 1 ? 's' : ''}
+                    <XCircle className="w-4 h-4 inline mr-1" /> {importResult.errors} erreur{importResult.errors > 1 ? 's' : ''}
                   </span>
                 )}
                 <span className="text-primary-600 dark:text-primary-400">
-                  ✅ {approvedCount} approuvé{approvedCount > 1 ? 's' : ''}
+                  <CheckCircle2 className="w-4 h-4 inline mr-1" /> {approvedCount} approuvé{approvedCount > 1 ? 's' : ''}
                 </span>
               </div>
             </div>
@@ -293,31 +296,31 @@ export default function TableImporterPage() {
                 onClick={handleApproveAllValid}
                 className="px-4 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 rounded-xl text-sm font-bold hover:bg-green-100 dark:hover:bg-green-900/30 transition-all"
               >
-                ✅ Tout approuver (valides)
+                <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Tout approuver</span> (valides)
               </button>
               <button
                 onClick={handleRejectAllErrors}
                 className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
               >
-                ❌ Tout rejeter (erreurs)
+                <span className="flex items-center gap-2"><XCircle className="w-4 h-4" /> Tout rejeter</span> (erreurs)
               </button>
               <button
                 onClick={handleReset}
                 className="px-4 py-2 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-white/5 transition-all"
               >
-                🔄 Recommencer
+                <span className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Recommencer</span>
               </button>
             </div>
 
             {/* Parse Error */}
             {parseError && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-4 text-red-700 dark:text-red-300 text-sm">
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-brand-lg p-4 text-red-700 dark:text-red-300 text-sm">
                 ❌ {parseError}
               </div>
             )}
 
             {/* Review Table */}
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
               <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
@@ -365,12 +368,12 @@ export default function TableImporterPage() {
                               ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
                               : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
                           }`}>
-                            {q.status === 'approved' && '✅'}
-                            {q.status === 'rejected' && '❌'}
-                            {q.status === 'error' && '❌'}
-                            {q.status === 'warning' && '⚠️'}
-                            {q.status === 'valid' && '✓'}
-                            {q.status === 'pending' && '⏳'}
+                            {q.status === 'approved' && <CheckCircle2 className="w-4 h-4" />}
+                            {q.status === 'rejected' && <XCircle className="w-4 h-4" />}
+                            {q.status === 'error' && <XCircle className="w-4 h-4" />}
+                            {q.status === 'warning' && <AlertTriangle className="w-4 h-4" />}
+                            {q.status === 'valid' && <Check className="w-4 h-4" />}
+                            {q.status === 'pending' && <RefreshCw className="w-4 h-4 animate-spin" />}
                           </span>
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
@@ -480,9 +483,9 @@ export default function TableImporterPage() {
               <button
                 onClick={handleBulkSave}
                 disabled={approvedCount === 0}
-                className="px-8 py-4 bg-primary-600 text-white rounded-2xl hover:bg-primary-700 font-black shadow-lg shadow-primary-500/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed text-lg"
+                className="px-8 py-4 bg-primary text-white rounded-brand-lg hover:bg-primary-600 font-heading font-bold shadow-lg shadow-primary/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed text-lg flex items-center justify-center gap-3"
               >
-                💾 Sauvegarder {approvedCount} question{approvedCount > 1 ? 's' : ''} approuvée{approvedCount > 1 ? 's' : ''}
+                <Save className="w-5 h-5" /> Sauvegarder {approvedCount} question{approvedCount > 1 ? 's' : ''} approuvée{approvedCount > 1 ? 's' : ''}
               </button>
             </div>
           </div>
@@ -490,19 +493,16 @@ export default function TableImporterPage() {
 
         {/* Phase: Saving */}
         {phase === 'saving' && (
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/5 p-12 text-center shadow-sm">
-            <div className="text-5xl mb-4 animate-bounce">💾</div>
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 p-12 text-center shadow-sm">
+            <div className="flex justify-center mb-4 text-primary"><Save className="w-16 h-16 animate-bounce" /></div>
             <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
               Sauvegarde en cours...
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {saveProgress.current}/{saveProgress.total} questions
+              Veuillez patienter...
             </p>
             <div className="mt-4 w-full max-w-md mx-auto bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
-              <div
-                className="bg-primary-600 h-full rounded-full transition-all duration-300"
-                style={{ width: `${saveProgress.total > 0 ? (saveProgress.current / saveProgress.total) * 100 : 0}%` }}
-              />
+              <div className="bg-primary h-full rounded-full animate-[shimmer_1.5s_infinite] bg-[length:200%_100%] bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" style={{ width: '100%' }} />
             </div>
           </div>
         )}
@@ -510,13 +510,13 @@ export default function TableImporterPage() {
         {/* Phase: Results */}
         {phase === 'results' && saveResult && (
           <div className="space-y-6">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/5 p-8 shadow-sm">
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 p-8 shadow-sm">
               <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
                 📊 Résultats de l&apos;importation
               </h2>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-2xl p-5 text-center border border-green-200 dark:border-green-800">
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-brand-lg p-5 text-center border border-green-200 dark:border-green-800">
                   <div className="text-3xl font-black text-green-600 dark:text-green-400">
                     {saveResult.saved}
                   </div>
@@ -524,7 +524,7 @@ export default function TableImporterPage() {
                     ✅ Sauvegardée{saveResult.saved > 1 ? 's' : ''}
                   </div>
                 </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-5 text-center border border-red-200 dark:border-red-800">
+                <div className="bg-red-50 dark:bg-red-900/20 rounded-brand-lg p-5 text-center border border-red-200 dark:border-red-800">
                   <div className="text-3xl font-black text-red-600 dark:text-red-400">
                     {saveResult.failed}
                   </div>
@@ -532,7 +532,7 @@ export default function TableImporterPage() {
                     ❌ Échouée{saveResult.failed > 1 ? 's' : ''}
                   </div>
                 </div>
-                <div className="bg-slate-100 dark:bg-slate-800 rounded-2xl p-5 text-center border border-slate-200 dark:border-slate-700">
+                <div className="bg-slate-100 dark:bg-slate-800 rounded-brand-lg p-5 text-center border border-slate-200 dark:border-slate-700">
                   <div className="text-3xl font-black text-slate-600 dark:text-slate-400">
                     {saveResult.skipped}
                   </div>
@@ -544,7 +544,7 @@ export default function TableImporterPage() {
 
               {/* Missing courses */}
               {saveResult.missingCourses && saveResult.missingCourses.length > 0 && (
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 mb-4">
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-brand-lg p-4 mb-4">
                   <p className="text-sm font-bold text-amber-700 dark:text-amber-300 mb-1">
                     ⚠️ Cours non trouvés dans la base de données :
                   </p>
@@ -602,7 +602,7 @@ export default function TableImporterPage() {
             <div className="flex gap-3">
               <button
                 onClick={handleReset}
-                className="px-6 py-3 bg-primary-600 text-white rounded-2xl hover:bg-primary-700 font-bold shadow-lg shadow-primary-500/20 active:scale-[0.98] transition-all"
+                className="px-6 py-3 bg-primary text-white rounded-brand-lg hover:bg-primary-600 font-bold shadow-lg shadow-primary/20 active:scale-[0.98] transition-all"
               >
                 📥 Importer d&apos;autres données
               </button>
@@ -613,7 +613,7 @@ export default function TableImporterPage() {
         {/* Edit Modal */}
         {editingIndex !== null && editData && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 md:p-8">
+            <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 md:p-8">
               <h3 className="text-lg font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
                 ✏️ Modifier la question #{editingIndex + 1}
               </h3>

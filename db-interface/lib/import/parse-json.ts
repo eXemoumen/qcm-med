@@ -60,22 +60,27 @@ function parseCorrectAnswers(raw: string): string[] {
   if (!raw || !raw.trim()) return [];
   const cleaned = raw.replace(/\s/g, '').toUpperCase();
   if (cleaned.includes(',')) {
-    return cleaned.split(',').filter(Boolean);
+    return cleaned.split(',').filter((c) => /^[A-E]$/.test(c));
   }
-  return cleaned.split('').filter(Boolean);
+  return cleaned.split('').filter((c) => /^[A-E]$/.test(c));
 }
 
 function buildAnswersFromExport(
   answers: ExportFormatQuestion['answers']
 ): CreateQuestionData['answers'] {
-  if (!answers) return [];
+  if (!answers || !Array.isArray(answers)) return [];
   const labels = ['A', 'B', 'C', 'D', 'E'] as const;
-  return answers.map((a, i) => ({
-    option_label: (a.option_label || a.label || labels[i]) as 'A' | 'B' | 'C' | 'D' | 'E',
-    answer_text: a.answer_text || a.text || '',
-    is_correct: a.is_correct || false,
-    display_order: a.display_order || i + 1,
-  }));
+  return answers.map((a, i) => {
+    // Preserve raw values — let the validator catch empties
+    const rawLabel = (a.option_label || a.label || '').toString().trim().toUpperCase();
+    const rawText = (a.answer_text || a.text || '').toString().trim();
+    return {
+      option_label: (rawLabel || labels[i]) as 'A' | 'B' | 'C' | 'D' | 'E',
+      answer_text: rawText, // keep empty — validator will catch it
+      is_correct: a.is_correct === true, // strict boolean check
+      display_order: a.display_order || i + 1,
+    };
+  });
 }
 
 function buildAnswersFromFlat(q: FlatFormatQuestion): CreateQuestionData['answers'] {

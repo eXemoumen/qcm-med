@@ -75,10 +75,10 @@ function parseCorrectAnswers(raw: string): string[] {
   if (cleaned.length <= 5 && /^[A-E,]+$/.test(cleaned)) {
     // Could be "AC" (no comma) or "A,C"
     if (cleaned.includes(',')) {
-      return cleaned.split(',').filter(Boolean);
+      return cleaned.split(',').filter((c) => /^[A-E]$/.test(c));
     }
     // No commas — each char is a separate answer
-    return cleaned.split('').filter(Boolean);
+    return cleaned.split('').filter((c) => /^[A-E]$/.test(c));
   }
   return [];
 }
@@ -187,12 +187,6 @@ export function parseExcel(file: File): Promise<ImportResult> {
 
           // Validate
           const { errors, warnings } = validateFullQuestion(questionData);
-
-          // Check for duplicate number warning
-          const correctCount = correctLetters.length;
-          if (correctCount === 0 && answers.length > 0) {
-            errors.push('No correct answer specified in "réponses_correctes" column');
-          }
 
           let status: ImportedQuestion['status'] = 'pending';
           if (errors.length > 0) {
