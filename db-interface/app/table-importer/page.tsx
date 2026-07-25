@@ -96,8 +96,19 @@ export default function TableImporterPage() {
         }),
       });
 
-      const batchResult = await response.json();
+      let batchResult: any;
+      try {
+        batchResult = await response.json();
+      } catch {
+        throw new Error(`Erreur serveur (${response.status}) — réponse invalide`);
+      }
+
       if (!response.ok) throw new Error(batchResult.error || 'Erreur lors de l\'envoi');
+
+      // Validate response shape
+      if (!batchResult.data?.id) {
+        throw new Error('Réponse serveur invalide — batch ID manquant');
+      }
 
       // Step 3: Redirect to batch review page
       router.push(`/import-dashboard/${batchResult.data.id}`);

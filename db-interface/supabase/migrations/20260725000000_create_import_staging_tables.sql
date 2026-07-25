@@ -153,3 +153,24 @@ CREATE TRIGGER trigger_update_import_batch_timestamp
   BEFORE UPDATE ON import_batches
   FOR EACH ROW
   EXECUTE FUNCTION update_import_batch_timestamp();
+
+-- ============================================================
+-- Prevent modification/deletion of saved staging rows
+-- ============================================================
+CREATE OR REPLACE FUNCTION prevent_saved_row_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status = 'saved' THEN
+    RAISE EXCEPTION 'Cannot modify staging row with status "saved"';
+  END IF;
+  IF TG_OP = 'DELETE' AND OLD.status = 'saved' THEN
+    RAISE EXCEPTION 'Cannot delete staging row with status "saved"';
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_prevent_saved_row_modification
+  BEFORE UPDATE OR DELETE ON question_staging
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_saved_row_modification();

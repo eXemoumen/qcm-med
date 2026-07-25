@@ -21,6 +21,18 @@ export async function POST(
   const startTime = Date.now();
   const LOG_SOURCE = 'api/import/batches/[batchId]/push/POST';
 
+  let claimedStatus: string | null = null;
+
+  const releaseClaim = async () => {
+    if (claimedStatus) {
+      await supabaseAdmin
+        .from('import_batches')
+        .update({ status: claimedStatus })
+        .eq('id', params.batchId);
+      claimedStatus = null;
+    }
+  };
+
   try {
     const rateLimitResult = await applyRateLimit(request, 'export');
     if (rateLimitResult.error) return rateLimitResult.error;
@@ -51,24 +63,29 @@ export async function POST(
       }
     }
 
-    // Block push on already-completed batches (prevents double-push)
+    // Block push on already-completed batches
     if (batch.status === 'completed') {
       return errorResponse('Batch already fully pushed — no approved questions remaining', 400, rateLimitResult.headers);
     }
 
-    // Atomically claim the batch by setting status to 'processing'
-    // If another request already set it, this update returns 0 rows and we abort
+    // Atomically claim the batch — only from non-processing states
+    if (batch.status === 'processing') {
+      return errorResponse('Batch is being processed by another request — try again', 409, rateLimitResult.headers);
+    }
+
     const { data: claimedBatch, error: claimError } = await supabaseAdmin
       .from('import_batches')
       .update({ status: 'processing' })
       .eq('id', params.batchId)
-      .eq('status', batch.status) // only update if status hasn't changed
+      .eq('status', batch.status)
       .select()
       .single();
 
     if (claimError || !claimedBatch) {
       return errorResponse('Batch is being processed by another request — try again', 409, rateLimitResult.headers);
     }
+
+    claimedStatus = batch.status;
 
     // Get all approved staging questions
     const { data: approvedQuestions, error: fetchError } = await supabaseAdmin
@@ -78,9 +95,13 @@ export async function POST(
       .eq('status', 'approved')
       .order('row_index', { ascending: true });
 
-    if (fetchError) throw fetchError;
+    if (fetchError) {
+      await releaseClaim();
+      throw fetchError;
+    }
 
     if (!approvedQuestions || approvedQuestions.length === 0) {
+      await releaseClaim();
       return errorResponse('No approved questions to push', 400, rateLimitResult.headers);
     }
 
@@ -244,12 +265,14 @@ export async function POST(
       }
     }
 
-    // Update batch status
+    // Update batch status (claim stays — don't release)
     const batchStatus = failed === 0 ? 'completed' : 'partial';
     await supabaseAdmin
       .from('import_batches')
       .update({ status: batchStatus })
       .eq('id', params.batchId);
+
+    claimedStatus = null; // Success — don't release
 
     const durationMs = Date.now() - startTime;
 
@@ -264,6 +287,7 @@ export async function POST(
       rateLimitResult.headers
     );
   } catch (error) {
+    await releaseClaim();
     const durationMs = Date.now() - startTime;
     logger.error('Batch push failed', {
       source: LOG_SOURCE,

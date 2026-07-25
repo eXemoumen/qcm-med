@@ -35,12 +35,19 @@ export default function ImportDashboardPage() {
 
   useEffect(() => { fetchBatches(); }, []);
 
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const handleDelete = async (batchId: string) => {
     if (!confirm('Supprimer ce batch et toutes ses données ?')) return;
+    if (deletingId) return; // prevent double submission
 
+    setDeletingId(batchId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        alert('Non authentifié — reconnectez-vous');
+        return;
+      }
 
       const response = await fetch(`/api/import/batches/${batchId}`, {
         method: 'DELETE',
@@ -56,6 +63,8 @@ export default function ImportDashboardPage() {
       setBatches((prev) => prev.filter((b) => b.id !== batchId));
     } catch (err: any) {
       alert(err.message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -185,7 +194,8 @@ export default function ImportDashboardPage() {
                           </Link>
                           <button
                             onClick={() => handleDelete(batch.id)}
-                            className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors"
+                            disabled={deletingId === batch.id}
+                            className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-colors disabled:opacity-40"
                             title="Supprimer"
                           >
                             <Trash2 className="w-4 h-4" />

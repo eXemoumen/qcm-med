@@ -150,8 +150,12 @@ export default function BatchReviewPage() {
     });
   };
 
+  const filteredQuestions = statusFilter === 'all'
+    ? questions
+    : questions.filter((q) => q.status === statusFilter);
+
   const selectAllValid = () => {
-    const validIds = questions
+    const validIds = filteredQuestions
       .filter((q) => q.status === 'valid' || q.status === 'warning')
       .map((q) => q.id);
     setSelectedIds(new Set(validIds));
@@ -240,10 +244,6 @@ export default function BatchReviewPage() {
   const errorCount = questions.filter((q) => q.status === 'error').length;
   const rejectedCount = questions.filter((q) => q.status === 'rejected').length;
   const savedCount = questions.filter((q) => q.status === 'saved').length;
-
-  const filteredQuestions = statusFilter === 'all'
-    ? questions
-    : questions.filter((q) => q.status === statusFilter);
 
   const statusLabel = (status: string) => {
     switch (status) {
@@ -541,14 +541,16 @@ export default function BatchReviewPage() {
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-1.5 flex-shrink-0 ml-4">
-                    {/* Edit button */}
-                    <button
-                      onClick={() => openEdit(q)}
-                      className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl transition-all"
-                      title="Modifier"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                    {/* Edit button — hidden for saved rows */}
+                    {q.status !== 'saved' && (
+                      <button
+                        onClick={() => openEdit(q)}
+                        className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-500/10 rounded-xl transition-all"
+                        title="Modifier"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    )}
 
                     {/* Approve / Reject / Undo */}
                     {q.status !== 'approved' && q.status !== 'rejected' && q.status !== 'saved' && (
@@ -593,7 +595,7 @@ export default function BatchReviewPage() {
                   <div className="grid grid-cols-1 gap-3">
                     {answers.map((a: any, i: number) => (
                       <div
-                        key={a.option_label || i}
+                        key={`${a.option_label}-${i}`}
                         className={`flex items-start gap-4 p-4 rounded-2xl border transition-all ${
                           a.is_correct
                             ? 'bg-green-50/50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20 shadow-sm'
@@ -685,7 +687,13 @@ export default function BatchReviewPage() {
 
       {/* ═══════════════════════ Edit Modal ═══════════════════════ */}
       {editingQuestion && editData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Modifier la question"
+          onKeyDown={(e) => { if (e.key === 'Escape') { setEditingQuestion(null); setEditData(null); } }}
+        >
           <div className="bg-white dark:bg-[#1a1a1a] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-3xl my-8 flex flex-col max-h-[90vh]">
 
             {/* Modal Header */}
@@ -696,15 +704,15 @@ export default function BatchReviewPage() {
               </h3>
 
               {/* Show current errors at the top of the modal */}
-              {(editingQuestion.errors?.length > 0 || editingQuestion.warnings?.length > 0) && (
+              {((editingQuestion.errors?.length ?? 0) > 0 || (editingQuestion.warnings?.length ?? 0) > 0) && (
                 <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30 rounded-2xl">
                   <p className="text-sm font-bold text-red-800 dark:text-red-300 mb-2">À corriger :</p>
-                  {(editingQuestion.errors || []).map((err: string, i: number) => (
+                  {(editingQuestion.errors ?? []).map((err: string, i: number) => (
                     <p key={i} className="text-sm text-red-600 dark:text-red-400 flex items-start gap-1.5 mb-1">
                       <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> {err}
                     </p>
                   ))}
-                  {(editingQuestion.warnings || []).map((warn: string, i: number) => (
+                  {(editingQuestion.warnings ?? []).map((warn: string, i: number) => (
                     <p key={i} className="text-sm text-amber-600 dark:text-amber-400 flex items-start gap-1.5 mb-1">
                       <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> {warn}
                     </p>

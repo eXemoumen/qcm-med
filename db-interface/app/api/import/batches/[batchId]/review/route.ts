@@ -68,8 +68,8 @@ export async function POST(
 
     const newStatus = action === 'approve' ? 'approved' : 'rejected';
 
-    // Update staging questions
-    const { error: updateError } = await supabaseAdmin
+    // Update staging questions — exclude already-pushed (saved) rows
+    const { data: updatedRows, error: updateError } = await supabaseAdmin
       .from('question_staging')
       .update({
         status: newStatus,
@@ -77,9 +77,13 @@ export async function POST(
         reviewed_at: new Date().toISOString(),
       })
       .in('id', questionIds)
-      .eq('batch_id', params.batchId);
+      .eq('batch_id', params.batchId)
+      .neq('status', 'saved')
+      .select('id');
 
     if (updateError) throw updateError;
+
+    const updatedCount = updatedRows?.length || 0;
 
     // Recalculate batch counts
     const { data: counts } = await supabaseAdmin
@@ -101,7 +105,6 @@ export async function POST(
           valid_count: statusCounts['valid'] || 0,
           warning_count: statusCounts['warning'] || 0,
           error_count: statusCounts['error'] || 0,
-          status: 'processing',
         })
         .eq('id', params.batchId);
     }
@@ -109,11 +112,11 @@ export async function POST(
     logger.info('Batch questions reviewed', {
       source: LOG_SOURCE,
       userId: authResult.user.id,
-      metadata: { batchId: params.batchId, action, count: questionIds.length },
+      metadata: { batchId: params.batchId, action, updatedCount },
     });
 
     return successResponse(
-      { updated: questionIds.length, action },
+      { updated: updatedCount, action },
       rateLimitResult.headers
     );
   } catch (error) {

@@ -125,7 +125,18 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       // Rollback batch if staging insert fails
-      await supabaseAdmin.from('import_batches').delete().eq('id', batch.id);
+      const { error: rollbackError } = await supabaseAdmin
+        .from('import_batches')
+        .delete()
+        .eq('id', batch.id);
+
+      if (rollbackError) {
+        logger.error('Batch rollback failed after staging insert error', {
+          source: LOG_SOURCE,
+          metadata: { batchId: batch.id, rollbackError: rollbackError.message, originalError: insertError.message },
+        });
+      }
+
       throw insertError;
     }
 
