@@ -69,6 +69,31 @@ export async function POST(request: NextRequest) {
 
     const { question, answers } = bodyResult.data;
 
+    // Pre-check: duplicate question number
+    let dupQuery = supabaseAdmin
+      .from('questions')
+      .select('number')
+      .eq('year', question.year)
+      .eq('module_name', question.module_name)
+      .eq('exam_type', question.exam_type)
+      .eq('exam_year', question.exam_year)
+      .eq('number', question.number);
+
+    if (question.sub_discipline) {
+      dupQuery = dupQuery.eq('sub_discipline', question.sub_discipline);
+    } else {
+      dupQuery = dupQuery.is('sub_discipline', null);
+    }
+
+    const { data: existingDup } = await dupQuery.limit(1);
+    if (existingDup && existingDup.length > 0) {
+      return errorResponse(
+        `Une question avec le numéro ${question.number} existe déjà pour ce module/examen`,
+        409,
+        rateLimitResult.headers
+      );
+    }
+
     // Insert question using admin client (bypasses RLS)
     const questionData = {
       year: question.year,
