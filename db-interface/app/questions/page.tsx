@@ -662,12 +662,6 @@ function QuestionsPageContent() {
               >
                 <span>📤</span> Exporter JSON
               </a>
-              <a
-                href="/table-importer"
-                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-2xl hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
-              >
-                <span>📥</span> Import en masse
-              </a>
             </>
           )}
           <button

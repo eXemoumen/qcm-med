@@ -170,5 +170,7 @@ export const config = {
     '/qcm-calc/:path*',
     '/moyen-calc/:path*',
     '/buy/:path*',
+    '/table-importer/:path*',
+    '/import-dashboard/:path*',
   ],
 };

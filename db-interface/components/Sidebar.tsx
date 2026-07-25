@@ -13,8 +13,10 @@ const navigation = [
   { name: "Questions", href: "/questions", icon: "❓" },
   { name: "Historique", href: "/history", icon: "📜" },
   { name: "Ressources", href: "/resources", icon: "📁" },
-  { name: "Santé Données", href: "/data-health", icon: "🩺" },
   { name: "QCM Calc", href: "/qcm-calc", icon: "🧮" },
+  { name: "Import en masse", href: "/table-importer", icon: "📥" },
+  { name: "Import Dashboard", href: "/import-dashboard", icon: "📋" },
+  { name: "Santé Données", href: "/data-health", icon: "🩺" },
 ];
 
 const ownerOnlyNavigation = [
@@ -42,7 +44,6 @@ const ownerOnlyNavigation = [
     badge: "Owner",
   },
   { name: "Export JSON", href: "/export", icon: "📤", badge: "Owner" },
-  { name: "Import en masse", href: "/table-importer", icon: "📥", badge: "Owner" },
   { name: "AI Chat", href: "/ai-chat", icon: "🤖", badge: "AI" },
   { name: "AI Analytics", href: "/ai-analytics", icon: "📊", badge: "AI" },
   { name: "Knowledge Base", href: "/knowledge", icon: "📚", badge: "RAG" },
