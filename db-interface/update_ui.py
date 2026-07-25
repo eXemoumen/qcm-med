@@ -1,325 +1,28 @@
-'use client';
+﻿import sys
 
-import { useState, useCallback, useRef } from 'react';
-import type { CreateQuestionData } from '@/lib/api/questions';
-import type { ImportedQuestion, ImportResult, BulkSaveResult } from '@/types/bulk-import';
-import { parseExcel } from '@/lib/import/parse-excel';
-import { parseJson } from '@/lib/import/parse-json';
-import { downloadExcelTemplate, downloadJsonTemplate } from '@/lib/import/template-generator';
-import { validateFullQuestion } from '@/lib/import/validate-import';
-import { supabase } from '@/lib/supabase';
-import { UploadCloud, FileSpreadsheet, FileJson, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, Download, RefreshCw, Save, Edit2, Undo2, Check, X, FileOutput, Plus, Trash2 } from 'lucide-react';
+def modify_file():
+    filepath = 'c:/Users/MOZ/Desktop/qcm/qcm-med/db-interface/app/table-importer/page.tsx'
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
 
-type Phase = 'upload' | 'review' | 'saving' | 'results';
+    # 1. Update imports
+    content = content.replace(
+        "import { UploadCloud, FileSpreadsheet, FileJson, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, Download, RefreshCw, Save, Edit2, Undo2, Check, X, FileOutput } from 'lucide-react';",
+        "import { UploadCloud, FileSpreadsheet, FileJson, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, Download, RefreshCw, Save, Edit2, Undo2, Check, X, FileOutput, Plus, Trash2 } from 'lucide-react';"
+    )
 
-export default function TableImporterPage() {
-  const [phase, setPhase] = useState<Phase>('upload');
-  const [file, setFile] = useState<File | null>(null);
-  const [parsing, setParsing] = useState(false);
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [saveResult, setSaveResult] = useState<BulkSaveResult | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editData, setEditData] = useState<CreateQuestionData | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileSelect = useCallback((selectedFile: File) => {
-    const ext = selectedFile.name.split('.').pop()?.toLowerCase();
-    if (!['xlsx', 'xls', 'csv', 'json'].includes(ext || '')) {
-      setParseError('Format non supporté. Utilisez .xlsx, .xls, .csv ou .json');
-      return;
-    }
-    setFile(selectedFile);
-    setParseError(null);
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) handleFileSelect(droppedFile);
-  }, [handleFileSelect]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback(() => setDragOver(false), []);
-
-  const handleParse = async () => {
-    if (!file) return;
-    setParsing(true);
-    setParseError(null);
-    try {
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      const result = ext === 'json' ? await parseJson(file) : await parseExcel(file);
-      setImportResult(result);
-      setPhase('review');
-    } catch (err: any) {
-      setParseError(err.message || 'Erreur lors de la lecture du fichier');
-    } finally {
-      setParsing(false);
-    }
-  };
-
-  const handleApprove = (index: number) => {
-    if (!importResult) return;
-    const updated = { ...importResult };
-    updated.questions = [...updated.questions];
-    updated.questions[index] = { ...updated.questions[index], status: 'approved' };
-    setImportResult(updated);
-  };
-
-  const handleReject = (index: number) => {
-    if (!importResult) return;
-    const updated = { ...importResult };
-    updated.questions = [...updated.questions];
-    updated.questions[index] = { ...updated.questions[index], status: 'rejected' };
-    setImportResult(updated);
-  };
-
-  const handleApproveAllValid = () => {
-    if (!importResult) return;
-    const updated = { ...importResult };
-    updated.questions = updated.questions.map((q) =>
-      q.status === 'valid' || q.status === 'warning' ? { ...q, status: 'approved' as const } : q
-    );
-    setImportResult(updated);
-  };
-
-  const handleRejectAllErrors = () => {
-    if (!importResult) return;
-    const updated = { ...importResult };
-    updated.questions = updated.questions.map((q) =>
-      q.status === 'error' ? { ...q, status: 'rejected' as const } : q
-    );
-    setImportResult(updated);
-  };
-
-  const handleEdit = (index: number) => {
-    if (!importResult) return;
-    setEditingIndex(index);
-    setEditData({ ...importResult.questions[index].data });
-  };
-
-  const handleSaveEdit = () => {
-    if (editingIndex === null || !editData || !importResult) return;
-    // Revalidate edited question
-    const { errors, warnings } = validateFullQuestion(editData);
-    const updated = { ...importResult };
-    updated.questions = [...updated.questions];
-    updated.questions[editingIndex] = {
-      ...updated.questions[editingIndex],
-      data: editData,
-      status: errors.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'approved',
-      errors,
-      warnings,
-    };
-    setImportResult(updated);
-    setEditingIndex(null);
-    setEditData(null);
-  };
-
-  const handleBulkSave = async () => {
-    if (!importResult) return;
-    const approved = importResult.questions.filter((q) => q.status === 'approved');
-    if (approved.length === 0) return;
-
-    setSaving(true);
-    setPhase('saving');
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Non authentifié');
-
-      const response = await fetch('/api/questions/bulk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          questions: approved.map((q) => q.data),
-        }),
-      });
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Erreur lors de la sauvegarde');
-
-      setSaveResult(result.data);
-      setPhase('results');
-    } catch (err: any) {
-      setParseError(err.message || 'Erreur lors de la sauvegarde');
-      setPhase('review');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleReset = () => {
-    setPhase('upload');
-    setFile(null);
-    setImportResult(null);
-    setSaveResult(null);
-    setParseError(null);
-    setEditingIndex(null);
-    setEditData(null);
-  };
-
-  const approvedCount = importResult?.questions.filter((q) => q.status === 'approved').length || 0;
-
-  return (
-    <div className="min-h-screen bg-neutral-light dark:bg-neutral-dark font-body">
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <a
-            href="/questions"
-            className="text-sm text-slate-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors mb-3 inline-flex items-center gap-1"
-          >
-            <ArrowLeft className="w-4 h-4" /> Retour aux Questions
-          </a>
-          <h1 className="text-3xl font-heading font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary flex items-center gap-3">
-            <UploadCloud className="w-8 h-8 text-primary" />
-            Table Importer
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
-            Importez des données en masse depuis des fichiers Excel ou JSON
-          </p>
-        </div>
-
-        {/* Phase: Upload */}
-        {phase === 'upload' && (
-          <div className="space-y-6">
-            {/* Upload Zone */}
-            <div
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onClick={() => fileInputRef.current?.click()}
-              className={`bg-white dark:bg-[#1a1a1a] rounded-brand-lg border-2 border-dashed p-12 text-center cursor-pointer transition-all shadow-sm ${
-                dragOver
-                  ? 'border-primary bg-primary/5'
-                  : 'border-slate-300 dark:border-white/10 hover:border-primary/50'
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv,.json"
-                aria-label="Choisir un fichier Excel ou JSON à importer"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleFileSelect(f);
-                }}
-                className="sr-only"
-              />
-              <div className="flex justify-center mb-4 text-primary"><UploadCloud className="w-12 h-12" /></div>
-              <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
-                {file ? file.name : 'Glissez-déposez votre fichier ici'}
-              </p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                {file
-                  ? `${(file.size / 1024).toFixed(1)} Ko — Cliquez pour changer`
-                  : 'Formats acceptés : .xlsx, .xls, .csv, .json'}
-              </p>
-            </div>
-
-            {/* Parse Error */}
-            {parseError && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-brand-lg p-4 text-red-700 dark:text-red-300 text-sm">
-                ❌ {parseError}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex flex-wrap gap-3">
-              {file && (
-                <button
-                  onClick={handleParse}
-                  disabled={parsing}
-                  className="px-6 py-3 bg-primary text-white rounded-brand-lg hover:bg-primary-600 font-bold shadow-lg shadow-primary/20 active:scale-[0.98] transition-all disabled:opacity-50"
-                >
-                  <span className="flex items-center gap-2">{parsing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}{parsing ? 'Analyse en cours...' : 'Analyser le fichier'}</span>
-                </button>
-              )}
-              <button
-                onClick={(e) => { e.stopPropagation(); downloadExcelTemplate(); }}
-                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-brand-lg hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" /> Template Excel
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); downloadJsonTemplate(); }}
-                className="px-5 py-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-white/10 rounded-brand-lg hover:bg-slate-50 dark:hover:bg-white/5 transition-all text-sm font-bold shadow-sm flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" /> Template JSON
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Phase: Review */}
-        {phase === 'review' && importResult && (
-          <div className="space-y-6">
-            {/* Stats Bar */}
-            <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 p-5 shadow-sm">
-              <div className="flex flex-wrap items-center gap-4 text-sm font-bold">
-                <span className="text-slate-900 dark:text-white">
-                  {importResult.total} total
-                </span>
-                <span className="text-green-600 dark:text-green-400">
-                  <CheckCircle2 className="w-4 h-4 inline mr-1" /> {importResult.valid} valide{importResult.valid > 1 ? 's' : ''}
-                </span>
-                {importResult.warnings > 0 && (
-                  <span className="text-amber-600 dark:text-amber-400">
-                    <AlertTriangle className="w-4 h-4 inline mr-1" /> {importResult.warnings} avertissement{importResult.warnings > 1 ? 's' : ''}
-                  </span>
-                )}
-                {importResult.errors > 0 && (
-                  <span className="text-red-600 dark:text-red-400">
-                    <XCircle className="w-4 h-4 inline mr-1" /> {importResult.errors} erreur{importResult.errors > 1 ? 's' : ''}
-                  </span>
-                )}
-                <span className="text-primary-600 dark:text-primary-400">
-                  <CheckCircle2 className="w-4 h-4 inline mr-1" /> {approvedCount} approuvé{approvedCount > 1 ? 's' : ''}
-                </span>
-              </div>
-            </div>
-
-            {/* Bulk Actions */}
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={handleApproveAllValid}
-                className="px-4 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 rounded-xl text-sm font-bold hover:bg-green-100 dark:hover:bg-green-900/30 transition-all"
-              >
-                <span className="flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Tout approuver</span> (valides)
-              </button>
-              <button
-                onClick={handleRejectAllErrors}
-                className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-xl text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
-              >
-                <span className="flex items-center gap-2"><XCircle className="w-4 h-4" /> Tout rejeter</span> (erreurs)
-              </button>
-              <button
-                onClick={handleReset}
-                className="px-4 py-2 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-white/5 transition-all"
-              >
-                <span className="flex items-center gap-2"><RefreshCw className="w-4 h-4" /> Recommencer</span>
-              </button>
-            </div>
-
-            {/* Parse Error */}
-            {parseError && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-brand-lg p-4 text-red-700 dark:text-red-300 text-sm">
-                ❌ {parseError}
-              </div>
-            )}
-
-            {/* Review Table (Now Cards) */}
+    # 2. Replace Review Table
+    start_marker = "{/* Review Table */}"
+    end_marker = "{/* Save Button */}"
+    
+    start_idx = content.find(start_marker)
+    end_idx = content.find(end_marker)
+    
+    if start_idx == -1 or end_idx == -1:
+        print("Could not find table markers")
+        return
+        
+    table_replacement = """{/* Review Table (Now Cards) */}
             <div className="grid grid-cols-1 gap-4">
               {importResult.questions.map((q, idx) => (
                 <div
@@ -447,7 +150,7 @@ export default function TableImporterPage() {
                           onClick={() => handleReject(idx)}
                           className="px-4 py-2 bg-amber-50 dark:bg-amber-900/10 text-amber-600 dark:text-amber-400 rounded-brand-lg text-sm font-bold hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-colors flex items-center gap-2"
                         >
-                          <Undo2 className="w-4 h-4" /> Annuler l&apos;approbation
+                          <Undo2 className="w-4 h-4" /> Annuler l'approbation
                         </button>
                       )}
                       {q.status === 'rejected' && (
@@ -462,141 +165,22 @@ export default function TableImporterPage() {
                   </div>
                 </div>
               ))}
-            </div>
+            </div>\n\n            """
+    
+    content = content[:start_idx] + table_replacement + content[end_idx:]
 
-            {/* Save Button */}
-            <div className="flex justify-end">
-              <button
-                onClick={handleBulkSave}
-                disabled={approvedCount === 0}
-                className="px-8 py-4 bg-primary text-white rounded-brand-lg hover:bg-primary-600 font-heading font-bold shadow-lg shadow-primary/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed text-lg flex items-center justify-center gap-3"
-              >
-                <Save className="w-5 h-5" /> Sauvegarder {approvedCount} question{approvedCount > 1 ? 's' : ''} approuvée{approvedCount > 1 ? 's' : ''}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Phase: Saving */}
-        {phase === 'saving' && (
-          <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 p-12 text-center shadow-sm">
-            <div className="flex justify-center mb-4 text-primary"><Save className="w-16 h-16 animate-bounce" /></div>
-            <p className="text-lg font-bold text-slate-900 dark:text-white mb-2">
-              Sauvegarde en cours...
-            </p>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Veuillez patienter...
-            </p>
-            <div className="mt-4 w-full max-w-md mx-auto bg-slate-100 dark:bg-slate-800 rounded-full h-3 overflow-hidden">
-              <div className="bg-primary h-full rounded-full animate-[shimmer_1.5s_infinite] bg-[length:200%_100%] bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)]" style={{ width: '100%' }} />
-            </div>
-          </div>
-        )}
-
-        {/* Phase: Results */}
-        {phase === 'results' && saveResult && (
-          <div className="space-y-6">
-            <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/5 p-8 shadow-sm">
-              <h2 className="text-xl font-black text-slate-900 dark:text-white mb-6 flex items-center gap-2">
-                📊 Résultats de l&apos;importation
-              </h2>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-brand-lg p-5 text-center border border-green-200 dark:border-green-800">
-                  <div className="text-3xl font-black text-green-600 dark:text-green-400">
-                    {saveResult.saved}
-                  </div>
-                  <div className="text-sm font-bold text-green-700 dark:text-green-300 mt-1">
-                    ✅ Sauvegardée{saveResult.saved > 1 ? 's' : ''}
-                  </div>
-                </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-brand-lg p-5 text-center border border-red-200 dark:border-red-800">
-                  <div className="text-3xl font-black text-red-600 dark:text-red-400">
-                    {saveResult.failed}
-                  </div>
-                  <div className="text-sm font-bold text-red-700 dark:text-red-300 mt-1">
-                    ❌ Échouée{saveResult.failed > 1 ? 's' : ''}
-                  </div>
-                </div>
-                <div className="bg-slate-100 dark:bg-slate-800 rounded-brand-lg p-5 text-center border border-slate-200 dark:border-slate-700">
-                  <div className="text-3xl font-black text-slate-600 dark:text-slate-400">
-                    {saveResult.skipped}
-                  </div>
-                  <div className="text-sm font-bold text-slate-700 dark:text-slate-300 mt-1">
-                    ⏭️ Ignorée{saveResult.skipped > 1 ? 's' : ''}
-                  </div>
-                </div>
-              </div>
-
-              {/* Missing courses */}
-              {saveResult.missingCourses && saveResult.missingCourses.length > 0 && (
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-brand-lg p-4 mb-4">
-                  <p className="text-sm font-bold text-amber-700 dark:text-amber-300 mb-1">
-                    ⚠️ Cours non trouvés dans la base de données :
-                  </p>
-                  <p className="text-sm text-amber-600 dark:text-amber-400">
-                    {saveResult.missingCourses.join(', ')}
-                  </p>
-                </div>
-              )}
-
-              {/* Failed details */}
-              {saveResult.results.filter((r) => r.status === 'error').length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                    Détails des erreurs :
-                  </h3>
-                  {saveResult.results
-                    .filter((r) => r.status === 'error')
-                    .map((r, i) => (
-                      <div
-                        key={i}
-                        className="bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 rounded-xl p-3 text-sm"
-                      >
-                        <span className="font-bold text-red-700 dark:text-red-300">
-                          Question #{r.index + 1} :
-                        </span>{' '}
-                        <span className="text-red-600 dark:text-red-400">{r.error}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
-
-              {/* Skipped details */}
-              {saveResult.results.filter((r) => r.status === 'skipped').length > 0 && (
-                <div className="space-y-2 mt-4">
-                  <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                    Détails des ignorées :
-                  </h3>
-                  {saveResult.results
-                    .filter((r) => r.status === 'skipped')
-                    .map((r, i) => (
-                      <div
-                        key={i}
-                        className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm"
-                      >
-                        <span className="font-bold text-slate-700 dark:text-slate-300">
-                          Question #{r.index + 1} :
-                        </span>{' '}
-                        <span className="text-slate-600 dark:text-slate-400">{r.error}</span>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleReset}
-                className="px-6 py-3 bg-primary text-white rounded-brand-lg hover:bg-primary-600 font-bold shadow-lg shadow-primary/20 active:scale-[0.98] transition-all"
-              >
-                📥 Importer d&apos;autres données
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Modal */}
+    # 3. Replace Edit Modal
+    start_modal = "{/* Edit Modal */}"
+    end_modal = "      </div>\n    </div>\n  );\n}"
+    
+    start_m_idx = content.find(start_modal)
+    end_m_idx = content.find(end_modal)
+    
+    if start_m_idx == -1 or end_m_idx == -1:
+        print("Could not find modal markers")
+        return
+        
+    modal_replacement = """{/* Edit Modal */}
         {editingIndex !== null && editData && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
             <div className="bg-white dark:bg-[#1a1a1a] rounded-brand-lg border border-slate-200 dark:border-white/10 shadow-2xl w-full max-w-3xl my-8 flex flex-col max-h-[90vh]">
@@ -655,7 +239,7 @@ export default function TableImporterPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      Type d&apos;examen
+                      Type d'examen
                     </label>
                     <select
                       value={editData.exam_type}
@@ -821,7 +405,7 @@ export default function TableImporterPage() {
                   ))}
                   {(!editData.answers || editData.answers.length === 0) && (
                     <div className="text-center py-4 text-slate-500 dark:text-slate-400 text-sm italic">
-                      Aucune réponse. Cliquez sur &quot;Ajouter&quot; pour en créer une.
+                      Aucune réponse. Cliquez sur "Ajouter" pour en créer une.
                     </div>
                   )}
                 </div>
@@ -873,8 +457,12 @@ export default function TableImporterPage() {
               </div>
             </div>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
+"""
+    content = content[:start_m_idx] + modal_replacement + "\n" + content[end_m_idx:]
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+    print("UI Overhaul complete.")
+
+modify_file()
