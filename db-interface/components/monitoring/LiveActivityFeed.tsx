@@ -140,30 +140,33 @@ export default function LiveActivityFeed() {
   }, [fetchActivity, fetchRecentErrors]);
 
   // Realtime: listen for new errors in app_logs
-  // Note: Supabase Realtime doesn't support `in` filters,
-  // so we listen to all INSERTs and filter client-side
+  // Supabase Realtime supports `eq` filters, so we use two channels
+  // for server-side filtering (one per severity level)
   useEffect(() => {
-    const channel = supabase
+    const handler = (payload: { new: LogEntry }) => {
+      const newLog = payload.new;
+      // Defensive client-side guard (server already filtered)
+      if (newLog.level === "error" || newLog.level === "fatal") {
+        setLiveErrors((prev) => [newLog, ...prev].slice(0, 20));
+      }
+    };
+
+    const errorChannel = supabase
       .channel("monitoring-live-errors")
       .on(
         "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "app_logs",
-        },
-        (payload) => {
-          const newLog = payload.new as LogEntry;
-          // Client-side filter for error/fatal only
-          if (newLog.level === "error" || newLog.level === "fatal") {
-            setLiveErrors((prev) => [newLog, ...prev].slice(0, 20));
-          }
-        }
+        { event: "INSERT", schema: "public", table: "app_logs", filter: "level=eq.error" },
+        handler
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "app_logs", filter: "level=eq.fatal" },
+        handler
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(errorChannel);
     };
   }, []);
 

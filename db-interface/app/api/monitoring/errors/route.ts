@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
       // Skip metadata to reduce payload size
       supabaseAdmin
         .from('app_logs')
-        .select('level, source, message, created_at')
+        .select('id, level, source, message, created_at')
         .in('level', ['error', 'fatal', 'warn'])
         .gte('created_at', twentyFourHoursAgo)
         .order('created_at', { ascending: false })
@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
         .select('source')
         .in('level', ['error', 'fatal'])
         .gte('created_at', twentyFourHoursAgo)
+        .order('created_at', { ascending: false })
         .limit(200),
 
       // Top error messages (for dedup)
@@ -143,7 +144,7 @@ export async function GET(request: NextRequest) {
       topMessages: topMessages.slice(0, 10),
       // Only return essential fields, no metadata
       recentErrors: recentErrors.slice(0, 20).map(e => ({
-        id: (e as any).id,
+        id: e.id,
         level: e.level,
         source: e.source,
         message: e.message,

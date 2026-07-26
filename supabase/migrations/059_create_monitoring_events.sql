@@ -1,5 +1,6 @@
 -- Migration 059: Create monitoring_events table + enable Realtime on app_logs
 -- for the owner monitoring dashboard
+-- All statements are idempotent — safe to re-run if partially applied.
 
 -- ============================================
 -- 1. monitoring_events table
@@ -29,34 +30,46 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_events_type_created
 CREATE INDEX IF NOT EXISTS idx_monitoring_events_key_created
   ON monitoring_events (metric_key, created_at DESC);
 
--- RLS policies
+-- RLS (idempotent — no-op if already enabled)
 ALTER TABLE monitoring_events ENABLE ROW LEVEL SECURITY;
 
--- Only owner can read monitoring events
-CREATE POLICY "Owner can read monitoring events"
-  ON monitoring_events
-  FOR SELECT
-  TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM users
-      WHERE users.id = auth.uid()
-      AND users.role = 'owner'
-    )
-  );
+-- Policies (idempotent — catch duplicate if already created)
+DO $$ BEGIN
+  CREATE POLICY "Owner can read monitoring events"
+    ON monitoring_events
+    FOR SELECT
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1 FROM users
+        WHERE users.id = auth.uid()
+        AND users.role = 'owner'
+      )
+    );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
--- Service role can insert (via API routes)
-CREATE POLICY "Service role can insert monitoring events"
-  ON monitoring_events
-  FOR INSERT
-  TO service_role
-  WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "Service role can insert monitoring events"
+    ON monitoring_events
+    FOR INSERT
+    TO service_role
+    WITH CHECK (true);
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Enable Realtime for monitoring_events
-ALTER PUBLICATION supabase_realtime ADD TABLE monitoring_events;
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE monitoring_events;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
--- Auto-cleanup: delete monitoring_events older than 7 days
--- Uses pg_scheduled_jobs if available, otherwise relies on app-level cleanup
+-- Cleanup function: delete monitoring_events older than 7 days
+-- Called app-level from /api/monitoring/health (throttled to once per 6 hours)
+-- NOTE: pg_cron is NOT available on the free tier, so cleanup is driven by the app.
 CREATE OR REPLACE FUNCTION cleanup_monitoring_events()
 RETURNS void AS $$
 BEGIN
@@ -65,26 +78,37 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Grant permissions
+-- Grant permissions (idempotent)
 GRANT SELECT ON monitoring_events TO authenticated;
 GRANT INSERT ON monitoring_events TO service_role;
 
 -- ============================================
--- 2. Enable Realtime on app_logs
+-- 2. count_online_users RPC
+-- Returns the number of distinct users with an active device session
+-- since the given timestamp.
+-- ============================================
+
+CREATE OR REPLACE FUNCTION count_online_users(since TIMESTAMPTZ)
+RETURNS INTEGER AS $$
+  SELECT COUNT(DISTINCT user_id)::INTEGER
+  FROM device_sessions
+  WHERE last_active_at >= since;
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ============================================
+-- 3. Enable Realtime on app_logs
 -- (Required for live error feed in monitoring dashboard)
 -- ============================================
 
--- Note: This may already be enabled. The IF NOT EXISTS behavior
--- varies by Supabase version, so we use a DO block for safety.
 DO $$
 BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE app_logs;
 EXCEPTION
-  WHEN duplicate_object THEN null; -- already in publication
+  WHEN duplicate_object THEN null;
 END $$;
 
 -- ============================================
--- 3. Enable Realtime on online_payments
+-- 4. Enable Realtime on online_payments
 -- (Required for live payment feed in monitoring dashboard)
 -- ============================================
 

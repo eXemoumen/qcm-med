@@ -10,6 +10,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyOwnerAuth } from '@/lib/monitoring-auth';
 
+const HEALTH_TIMEOUT_MS = 8000;
+
+/** Wraps a thenable (Promise or Supabase query builder) with a finite timeout. */
+function withTimeout<T>(thenable: PromiseLike<T>, fallback: T, ms: number = HEALTH_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    Promise.resolve(thenable),
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await verifyOwnerAuth(request);
@@ -17,7 +27,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    // Run all health checks in parallel
+    // Run all health checks in parallel, each bounded by a timeout
     const now = new Date();
     const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000).toISOString();
     const fifteenMinAgo = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
@@ -31,40 +41,58 @@ export async function GET(request: NextRequest) {
       questionsCountResult,
       logsCountResult,
     ] = await Promise.allSettled([
-      // DB response time measurement — simple lightweight query
-      (async () => {
-        const start = Date.now();
-        const { error } = await supabaseAdmin
-          .from('users')
-          .select('id', { head: true })
-          .limit(1);
-        const elapsed = Date.now() - start;
-        return { connected: !error, responseTimeMs: elapsed };
-      })(),
+      // DB response time measurement — lightweight probe with timeout
+      withTimeout(
+        (async () => {
+          const start = Date.now();
+          const { error } = await supabaseAdmin
+            .from('users')
+            .select('id', { head: true })
+            .limit(1);
+          const elapsed = Date.now() - start;
+          return { connected: !error, responseTimeMs: elapsed };
+        })(),
+        { connected: false, responseTimeMs: -1 }
+      ),
 
       // Active device sessions (last 5 min)
-      supabaseAdmin
-        .from('device_sessions')
-        .select('id', { count: 'exact', head: true })
-        .gte('last_active_at', fiveMinAgo),
+      withTimeout(
+        supabaseAdmin
+          .from('device_sessions')
+          .select('id', { count: 'exact', head: true })
+          .gte('last_active_at', fiveMinAgo),
+        { count: 0, data: null, error: null } as any
+      ),
 
-      // Online users (last 15 min) — distinct user_ids
-      supabaseAdmin
-        .from('device_sessions')
-        .select('user_id')
-        .gte('last_active_at', fifteenMinAgo),
+      // Online users via RPC (distinct user count, last 15 min)
+      withTimeout(
+        supabaseAdmin.rpc('count_online_users', { since: fifteenMinAgo }),
+        { data: 0, error: null } as any
+      ),
 
       // Maintenance mode
-      supabaseAdmin
-        .from('app_config')
-        .select('value')
-        .eq('key', 'maintenance_mode')
-        .single(),
+      withTimeout(
+        supabaseAdmin
+          .from('app_config')
+          .select('value')
+          .eq('key', 'maintenance_mode')
+          .single(),
+        { data: null, error: null } as any
+      ),
 
       // Table row counts
-      supabaseAdmin.from('users').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('questions').select('id', { count: 'exact', head: true }),
-      supabaseAdmin.from('app_logs').select('id', { count: 'exact', head: true }),
+      withTimeout(
+        supabaseAdmin.from('users').select('id', { count: 'exact', head: true }),
+        { count: 0, data: null, error: null } as any
+      ),
+      withTimeout(
+        supabaseAdmin.from('questions').select('id', { count: 'exact', head: true }),
+        { count: 0, data: null, error: null } as any
+      ),
+      withTimeout(
+        supabaseAdmin.from('app_logs').select('id', { count: 'exact', head: true }),
+        { count: 0, data: null, error: null } as any
+      ),
     ]);
 
     // Extract results
@@ -76,9 +104,9 @@ export async function GET(request: NextRequest) {
       ? (activeSessionsResult.value.count ?? 0)
       : 0;
 
-    // Count distinct users for online count
+    // RPC returns a scalar count directly
     const onlineUsers = onlineUsersResult.status === 'fulfilled'
-      ? new Set((onlineUsersResult.value.data ?? []).map((r: any) => r.user_id)).size
+      ? (onlineUsersResult.value.data ?? 0)
       : 0;
 
     const maintenanceMode = maintenanceResult.status === 'fulfilled'
@@ -97,6 +125,28 @@ export async function GET(request: NextRequest) {
       status = 'error';
     } else if (dbProbeValue.responseTimeMs > 2000) {
       status = 'degraded';
+    }
+
+    // App-level cleanup: delete monitoring_events older than 7 days
+    // Throttled to run at most once per 6 hours via app_config timestamp
+    const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const cleanupKey = 'monitoring_events_last_cleanup';
+    try {
+      const { data: cleanupConfig } = await supabaseAdmin
+        .from('app_config')
+        .select('value')
+        .eq('key', cleanupKey)
+        .single();
+
+      const lastCleanup = cleanupConfig?.value ? new Date(cleanupConfig.value).getTime() : 0;
+      if (Date.now() - lastCleanup > CLEANUP_INTERVAL_MS) {
+        await supabaseAdmin.rpc('cleanup_monitoring_events');
+        await supabaseAdmin
+          .from('app_config')
+          .upsert({ key: cleanupKey, value: new Date().toISOString() }, { onConflict: 'key' });
+      }
+    } catch {
+      // Non-critical — ignore cleanup errors
     }
 
     return NextResponse.json({
