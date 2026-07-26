@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ImportBatch, StagingQuestion } from '@/types/bulk-import';
 import { supabase } from '@/lib/supabase';
 import { validateFullQuestion } from '@/lib/import/validate-import';
+import { PREDEFINED_MODULES, PREDEFINED_SUBDISCIPLINES } from '@/lib/predefined-modules';
+import { EXAM_TYPES_BY_MODULE_TYPE } from '@/lib/constants';
 import {
   ArrowLeft, RefreshCw, Check, X, Undo2, Play,
-  AlertTriangle, CheckCircle2, XCircle, Edit2, Plus, Trash2,
+  AlertTriangle, CheckCircle2, XCircle, Edit2, Plus, Trash2, ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -68,6 +70,76 @@ export default function BatchReviewPage() {
     };
     setPushLogs((prev) => [log, ...prev]);
   };
+
+  // ── Edit Modal Dropdowns ──
+  // Modules filtered by selected year
+  const filteredModules = useMemo(() => {
+    if (!editData?.year) return PREDEFINED_MODULES;
+    return PREDEFINED_MODULES.filter((m) => m.year === editData.year);
+  }, [editData?.year]);
+
+  // Selected module definition
+  const selectedModuleDef = useMemo(() => {
+    if (!editData?.module_name || !editData?.year) return null;
+    return PREDEFINED_MODULES.find((m) => m.name === editData.module_name && m.year === editData.year);
+  }, [editData?.module_name, editData?.year]);
+
+  // Exam types filtered by selected module type
+  const filteredExamTypes = useMemo(() => {
+    if (!selectedModuleDef) return ['EMD', 'EMD1', 'EMD2', 'Rattrapage'];
+    return EXAM_TYPES_BY_MODULE_TYPE[selectedModuleDef.type] || ['EMD', 'Rattrapage'];
+  }, [selectedModuleDef]);
+
+  // Sub-disciplines for selected module (only for UEI)
+  const availableSubDisciplines = useMemo(() => {
+    if (!selectedModuleDef?.hasSubDisciplines) return [];
+    return PREDEFINED_SUBDISCIPLINES[editData.module_name] || [];
+  }, [selectedModuleDef, editData?.module_name]);
+
+  // Faculty sources
+  const FACULTY_SOURCES = [
+    { value: 'fac_mere', label: 'Faculté Mère' },
+    { value: 'annexe_biskra', label: 'Annexe Biskra' },
+    { value: 'annexe_oum_el_bouaghi', label: 'Annexe Oum El Bouaghi' },
+    { value: 'annexe_khenchela', label: 'Annexe Khenchela' },
+    { value: 'annexe_souk_ahras', label: 'Annexe Souk Ahras' },
+  ];
+
+  // Available courses from DB based on selected year/module/sub_discipline
+  const [availableCourses, setAvailableCourses] = useState<{ name: string; id: string }[]>([]);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      if (!editData?.year || !editData?.module_name) {
+        setAvailableCourses([]);
+        return;
+      }
+
+      try {
+        let query = supabase
+          .from('courses')
+          .select('id, name')
+          .eq('year', editData.year)
+          .eq('module_name', editData.module_name)
+          .order('name');
+
+        if (editData.sub_discipline) {
+          query = query.eq('sub_discipline', editData.sub_discipline);
+        } else {
+          query = query.is('sub_discipline', null);
+        }
+
+        const { data, error } = await query;
+        if (!error && data) {
+          setAvailableCourses(data);
+        }
+      } catch {
+        setAvailableCourses([]);
+      }
+    };
+
+    fetchCourses();
+  }, [editData?.year, editData?.module_name, editData?.sub_discipline]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -1023,28 +1095,48 @@ export default function BatchReviewPage() {
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                     Module
                   </label>
-                  <input
-                    type="text"
-                    value={editData.module_name}
-                    onChange={(e) => setEditData({ ...editData, module_name: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
-                  />
+                  <div className="relative">
+                    <select
+                      value={editData.module_name}
+                      onChange={(e) => {
+                        const newModuleName = e.target.value;
+                        const newModule = PREDEFINED_MODULES.find((m) => m.name === newModuleName && m.year === editData.year);
+                        const newExamTypes = newModule ? EXAM_TYPES_BY_MODULE_TYPE[newModule.type] : [];
+                        const needsSubDiscipline = newModule?.hasSubDisciplines || false;
+                        setEditData({
+                          ...editData,
+                          module_name: newModuleName,
+                          exam_type: newExamTypes.includes(editData.exam_type) ? editData.exam_type : newExamTypes[0] || '',
+                          sub_discipline: needsSubDiscipline ? editData.sub_discipline : '',
+                        });
+                      }}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm appearance-none"
+                    >
+                      <option value="">Sélectionner un module</option>
+                      {filteredModules.map((m) => (
+                        <option key={m.name} value={m.name}>{m.name}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                     Type d&apos;examen
                   </label>
-                  <select
-                    value={editData.exam_type}
-                    onChange={(e) => setEditData({ ...editData, exam_type: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
-                  >
-                    <option value="">Sélectionner</option>
-                    <option value="EMD">EMD</option>
-                    <option value="EMD1">EMD1</option>
-                    <option value="EMD2">EMD2</option>
-                    <option value="Rattrapage">Rattrapage</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={editData.exam_type}
+                      onChange={(e) => setEditData({ ...editData, exam_type: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm appearance-none"
+                    >
+                      <option value="">Sélectionner</option>
+                      {filteredExamTypes.map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
@@ -1070,14 +1162,108 @@ export default function BatchReviewPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Sous-discipline
+                    Sous-discipline {selectedModuleDef?.hasSubDisciplines ? '' : <span className="text-slate-300 dark:text-slate-600">(non requis)</span>}
                   </label>
-                  <input
-                    type="text"
-                    value={editData.sub_discipline || ''}
-                    onChange={(e) => setEditData({ ...editData, sub_discipline: e.target.value || '' })}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
-                  />
+                  {selectedModuleDef?.hasSubDisciplines ? (
+                    <div className="relative">
+                      <select
+                        value={editData.sub_discipline || ''}
+                        onChange={(e) => setEditData({ ...editData, sub_discipline: e.target.value || '' })}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm appearance-none"
+                      >
+                        <option value="">Sélectionner</option>
+                        {availableSubDisciplines.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={editData.sub_discipline || ''}
+                      onChange={(e) => setEditData({ ...editData, sub_discipline: e.target.value || '' })}
+                      placeholder="Optionnel"
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Faculty Source + Cours */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Source (Faculté)
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={editData.faculty_source || ''}
+                      onChange={(e) => setEditData({ ...editData, faculty_source: e.target.value || undefined })}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm appearance-none"
+                    >
+                      <option value="">Non spécifié</option>
+                      {FACULTY_SOURCES.map((s) => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Cours {availableCourses.length > 0 && <span className="text-slate-300 dark:text-slate-600">({availableCourses.length} disponible{availableCourses.length > 1 ? 's' : ''})</span>}
+                  </label>
+                  {availableCourses.length > 0 ? (
+                    <div className="relative">
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value && !(editData.cours || []).includes(value)) {
+                            setEditData({ ...editData, cours: [...(editData.cours || []), value] });
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm appearance-none"
+                      >
+                        <option value="">+ Ajouter un cours...</option>
+                        {availableCourses
+                          .filter((c) => !(editData.cours || []).includes(c.name))
+                          .map((c) => (
+                            <option key={c.id} value={c.name}>{c.name}</option>
+                          ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={(editData.cours || []).join('; ')}
+                      onChange={(e) => setEditData({ ...editData, cours: e.target.value.split(';').map((s: string) => s.trim()).filter(Boolean) })}
+                      placeholder="Sélectionnez année + module d'abord"
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
+                    />
+                  )}
+                  {/* Selected courses chips */}
+                  {(editData.cours || []).length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {(editData.cours || []).map((c: string) => (
+                        <span
+                          key={c}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-lg text-xs font-bold border border-primary-200 dark:border-primary-800"
+                        >
+                          {c}
+                          <button
+                            type="button"
+                            onClick={() => setEditData({ ...editData, cours: (editData.cours || []).filter((x: string) => x !== c) })}
+                            className="ml-0.5 hover:text-red-500 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1197,35 +1383,17 @@ export default function BatchReviewPage() {
                 )}
               </div>
 
-              {/* Cours + Explanation */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Cours (séparés par ;)
-                  </label>
-                  <input
-                    type="text"
-                    value={(editData.cours || []).join('; ')}
-                    onChange={(e) =>
-                      setEditData({
-                        ...editData,
-                        cours: e.target.value ? e.target.value.split(';').map((s: string) => s.trim()).filter(Boolean) : [],
-                      })
-                    }
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
+              {/* Explanation */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Explication
+                </label>
+                <input
+                  type="text"
+                  value={editData.explanation || ''}
+                  onChange={(e) => setEditData({ ...editData, explanation: e.target.value || '' })}
+                  className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Explication
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.explanation || ''}
-                    onChange={(e) => setEditData({ ...editData, explanation: e.target.value || '' })}
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm"
-                  />
-                </div>
               </div>
             </div>
 
