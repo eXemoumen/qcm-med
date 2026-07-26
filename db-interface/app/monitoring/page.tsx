@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import SystemHealth from "@/components/monitoring/SystemHealth";
@@ -19,13 +19,8 @@ interface Alert {
 export default function MonitoringPage() {
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [alertSummary, setAlertSummary] = useState({
-    critical: 0,
-    warning: 0,
-    info: 0,
-  });
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Auth check — owner only
   useEffect(() => {
@@ -56,7 +51,7 @@ export default function MonitoringPage() {
   }, [router]);
 
   // Fetch alerts
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     try {
       const {
         data: { session },
@@ -70,19 +65,26 @@ export default function MonitoringPage() {
       if (response.ok) {
         const data = await response.json();
         setAlerts(data.alerts || []);
-        setAlertSummary(data.summary || { critical: 0, warning: 0, info: 0 });
       }
     } catch {
       // silent
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (isLoadingAuth) return;
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 60_000);
     return () => clearInterval(interval);
-  }, [isLoadingAuth]);
+  }, [isLoadingAuth, fetchAlerts]);
+
+  // Soft refresh — refetches alerts without remounting children
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchAlerts();
+    // Small delay so the user sees the feedback
+    setTimeout(() => setIsRefreshing(false), 500);
+  }, [fetchAlerts]);
 
   if (isLoadingAuth) {
     return (
@@ -112,10 +114,11 @@ export default function MonitoringPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setRefreshKey((k) => k + 1)}
-            className="px-4 py-2 bg-theme-secondary text-theme-secondary rounded-xl border border-theme hover:bg-primary/10 hover:text-primary transition-all text-sm font-medium"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="px-4 py-2 bg-theme-secondary text-theme-secondary rounded-xl border border-theme hover:bg-primary/10 hover:text-primary transition-all text-sm font-medium disabled:opacity-50"
           >
-            🔄 Tout actualiser
+            {isRefreshing ? "⏳" : "🔄"} Actualiser
           </button>
         </div>
       </div>
@@ -201,14 +204,14 @@ export default function MonitoringPage() {
       )}
 
       {/* Section A: System Health */}
-      <SystemHealth key={`health-${refreshKey}`} />
+      <SystemHealth />
 
       {/* Section B: Live Activity Feed */}
       <div>
         <h2 className="text-sm font-semibold text-theme-main mb-3 flex items-center gap-2">
           ⚡ Activité en temps réel
         </h2>
-        <LiveActivityFeed key={`activity-${refreshKey}`} />
+        <LiveActivityFeed />
       </div>
 
       {/* Section C: Trend Charts */}
@@ -216,7 +219,7 @@ export default function MonitoringPage() {
         <h2 className="text-sm font-semibold text-theme-main mb-3 flex items-center gap-2">
           📊 Tendances
         </h2>
-        <TrendCharts key={`trends-${refreshKey}`} />
+        <TrendCharts />
       </div>
     </div>
   );

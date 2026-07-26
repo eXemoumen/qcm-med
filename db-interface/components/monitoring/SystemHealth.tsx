@@ -18,14 +18,12 @@ interface KpiCardProps {
   value: string | number;
   sub?: string;
   accent?: string;
-  onClick?: () => void;
 }
 
-function KpiCard({ icon, label, value, sub, accent, onClick }: KpiCardProps) {
+function KpiCard({ icon, label, value, sub, accent }: KpiCardProps) {
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-3 p-4 rounded-xl bg-theme-card border border-theme hover:border-primary/20 transition-all text-left w-full ${
+    <div
+      className={`flex items-center gap-3 p-4 rounded-xl bg-theme-card border border-theme transition-all ${
         accent || ""
       }`}
     >
@@ -39,15 +37,11 @@ function KpiCard({ icon, label, value, sub, accent, onClick }: KpiCardProps) {
           <div className="text-[11px] text-theme-muted truncate">{sub}</div>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 
-interface SystemHealthProps {
-  onRefresh?: () => void;
-}
-
-export default function SystemHealth({ onRefresh }: SystemHealthProps) {
+export default function SystemHealth() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -77,14 +71,9 @@ export default function SystemHealth({ onRefresh }: SystemHealthProps) {
 
   useEffect(() => {
     fetchHealth();
-    // Auto-refresh every 30 seconds
     const interval = setInterval(fetchHealth, 30_000);
     return () => clearInterval(interval);
   }, [fetchHealth]);
-
-  useEffect(() => {
-    onRefresh?.();
-  }, [health, onRefresh]);
 
   if (isLoading && !health) {
     return (
@@ -105,31 +94,22 @@ export default function SystemHealth({ onRefresh }: SystemHealthProps) {
     ok: {
       icon: "🟢",
       label: "Système OK",
-      color: "text-emerald-500",
       bg: "bg-emerald-500/10 border-emerald-500/20",
     },
     degraded: {
       icon: "🟡",
       label: "Dégradé",
-      color: "text-amber-500",
       bg: "bg-amber-500/10 border-amber-500/20",
     },
     error: {
       icon: "🔴",
       label: "Erreur",
-      color: "text-red-500",
       bg: "bg-red-500/10 border-red-500/20",
     },
   };
 
   const statusInfo = statusConfig[health.status];
   const dbTime = health.database.responseTimeMs;
-  const dbTimeColor =
-    dbTime < 500
-      ? "text-emerald-500"
-      : dbTime < 1500
-        ? "text-amber-500"
-        : "text-red-500";
 
   return (
     <div className="space-y-3">

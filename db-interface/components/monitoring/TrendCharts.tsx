@@ -5,8 +5,6 @@ import { supabase } from "@/lib/supabase";
 import {
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,

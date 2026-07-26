@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
 interface ActiveSession {
@@ -63,6 +63,7 @@ const LEVEL_BADGE: Record<string, { icon: string; bg: string }> = {
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 0) return "à l'instant";
   if (seconds < 60) return `il y a ${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `il y a ${minutes}min`;
@@ -76,6 +77,13 @@ export default function LiveActivityFeed() {
   const [activity, setActivity] = useState<ActivityData | null>(null);
   const [liveErrors, setLiveErrors] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Force re-render to update relative times every 30s
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchActivity = useCallback(async () => {
     try {
@@ -99,7 +107,6 @@ export default function LiveActivityFeed() {
     }
   }, []);
 
-  // Fetch recent errors for the error feed
   const fetchRecentErrors = useCallback(async () => {
     try {
       const {
@@ -124,7 +131,6 @@ export default function LiveActivityFeed() {
     fetchActivity();
     fetchRecentErrors();
 
-    // Auto-refresh every 15 seconds
     const interval = setInterval(() => {
       fetchActivity();
       fetchRecentErrors();
@@ -134,6 +140,8 @@ export default function LiveActivityFeed() {
   }, [fetchActivity, fetchRecentErrors]);
 
   // Realtime: listen for new errors in app_logs
+  // Note: Supabase Realtime doesn't support `in` filters,
+  // so we listen to all INSERTs and filter client-side
   useEffect(() => {
     const channel = supabase
       .channel("monitoring-live-errors")
@@ -143,11 +151,13 @@ export default function LiveActivityFeed() {
           event: "INSERT",
           schema: "public",
           table: "app_logs",
-          filter: "level=in.(error,fatal)",
         },
         (payload) => {
           const newLog = payload.new as LogEntry;
-          setLiveErrors((prev) => [newLog, ...prev].slice(0, 20));
+          // Client-side filter for error/fatal only
+          if (newLog.level === "error" || newLog.level === "fatal") {
+            setLiveErrors((prev) => [newLog, ...prev].slice(0, 20));
+          }
         }
       )
       .subscribe();
@@ -165,7 +175,6 @@ export default function LiveActivityFeed() {
         "postgres_changes",
         { event: "*", schema: "public", table: "device_sessions" },
         () => {
-          // Re-fetch activity when sessions change
           fetchActivity();
         }
       )
@@ -305,7 +314,6 @@ export default function LiveActivityFeed() {
               </div>
             ) : (
               <>
-                {/* Daily total */}
                 <div className="px-4 py-3 bg-emerald-500/5 border-b border-theme flex items-center justify-between">
                   <span className="text-xs text-theme-muted font-medium">
                     Total aujourd&apos;hui

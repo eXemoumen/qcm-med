@@ -7,31 +7,13 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { verifyOwnerAuth } from '@/lib/monitoring-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    // Auth check
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Verify owner role
-    const { data: userData } = await supabaseAdmin
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (!userData || userData.role !== 'owner') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const auth = await verifyOwnerAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();

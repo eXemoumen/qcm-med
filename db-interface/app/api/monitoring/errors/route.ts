@@ -7,31 +7,13 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { verifyOwnerAuth } from '@/lib/monitoring-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    // Auth check
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Verify owner role
-    const { data: userData } = await supabaseAdmin
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (!userData || userData.role !== 'owner') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const auth = await verifyOwnerAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -44,9 +26,10 @@ export async function GET(request: NextRequest) {
       totalCountResult,
     ] = await Promise.allSettled([
       // Recent errors/warnings (last 24h, limit 500 for aggregation)
+      // Skip metadata to reduce payload size
       supabaseAdmin
         .from('app_logs')
-        .select('level, source, message, created_at, metadata')
+        .select('level, source, message, created_at')
         .in('level', ['error', 'fatal', 'warn'])
         .gte('created_at', twentyFourHoursAgo)
         .order('created_at', { ascending: false })
@@ -85,34 +68,32 @@ export async function GET(request: NextRequest) {
       ? (totalCountResult.value.count ?? 0)
       : 0;
 
-    // Build hourly buckets for the last 24 hours
+    // Build hourly buckets — single-pass O(n) instead of O(n×24)
+    const now = Date.now();
     const hourlyBuckets: { hour: string; errors: number; warnings: number; fatals: number }[] = [];
+
+    // Initialize empty buckets
     for (let i = 23; i >= 0; i--) {
-      const hourStart = new Date(Date.now() - (i + 1) * 60 * 60 * 1000);
-      const hourEnd = new Date(Date.now() - i * 60 * 60 * 1000);
-      const hourLabel = hourStart.toISOString().slice(0, 13); // "2026-07-26T14"
+      const hourStart = new Date(now - (i + 1) * 60 * 60 * 1000);
+      const hourLabel = hourStart.toISOString().slice(0, 13);
+      hourlyBuckets.push({ hour: hourLabel, errors: 0, warnings: 0, fatals: 0 });
+    }
 
-      const bucketErrors = recentErrors.filter(e => {
-        const t = new Date(e.created_at);
-        return t >= hourStart && t < hourEnd && (e.level === 'error' || e.level === 'fatal');
-      }).length;
+    // Single pass: classify each error into its bucket
+    for (const log of recentErrors) {
+      const logTime = new Date(log.created_at).getTime();
+      const hoursAgo = (now - logTime) / (60 * 60 * 1000);
+      const bucketIndex = 23 - Math.floor(hoursAgo);
 
-      const bucketWarnings = recentErrors.filter(e => {
-        const t = new Date(e.created_at);
-        return t >= hourStart && t < hourEnd && e.level === 'warn';
-      }).length;
-
-      const bucketFatals = recentErrors.filter(e => {
-        const t = new Date(e.created_at);
-        return t >= hourStart && t < hourEnd && e.level === 'fatal';
-      }).length;
-
-      hourlyBuckets.push({
-        hour: hourLabel,
-        errors: bucketErrors,
-        warnings: bucketWarnings,
-        fatals: bucketFatals,
-      });
+      if (bucketIndex >= 0 && bucketIndex < 24) {
+        if (log.level === 'fatal') {
+          hourlyBuckets[bucketIndex].fatals++;
+        } else if (log.level === 'error') {
+          hourlyBuckets[bucketIndex].errors++;
+        } else if (log.level === 'warn') {
+          hourlyBuckets[bucketIndex].warnings++;
+        }
+      }
     }
 
     // Top sources (deduplicated with count)
@@ -137,7 +118,7 @@ export async function GET(request: NextRequest) {
     const messageCounts: Record<string, number> = {};
 
     messagesData.forEach(m => {
-      const key = m.message.slice(0, 100); // Use first 100 chars as dedup key
+      const key = m.message.slice(0, 100);
       messageCounts[key] = (messageCounts[key] || 0) + 1;
       if (!seenMessages.has(key)) {
         seenMessages.add(key);
@@ -160,7 +141,14 @@ export async function GET(request: NextRequest) {
       hourlyBuckets,
       topSources: topSources.slice(0, 10),
       topMessages: topMessages.slice(0, 10),
-      recentErrors: recentErrors.slice(0, 20),
+      // Only return essential fields, no metadata
+      recentErrors: recentErrors.slice(0, 20).map(e => ({
+        id: (e as any).id,
+        level: e.level,
+        source: e.source,
+        message: e.message,
+        created_at: e.created_at,
+      })),
     });
   } catch (error) {
     console.error('[api/monitoring/errors] Error:', error);

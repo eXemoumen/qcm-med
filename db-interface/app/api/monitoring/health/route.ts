@@ -8,31 +8,13 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { verifyOwnerAuth } from '@/lib/monitoring-auth';
 
 export async function GET(request: NextRequest) {
   try {
-    // Auth check
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Verify owner role
-    const { data: userData } = await supabaseAdmin
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (!userData || userData.role !== 'owner') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const auth = await verifyOwnerAuth(request);
+    if (!auth.authorized) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     // Run all health checks in parallel
@@ -49,7 +31,7 @@ export async function GET(request: NextRequest) {
       questionsCountResult,
       logsCountResult,
     ] = await Promise.allSettled([
-      // DB response time measurement
+      // DB response time measurement — simple lightweight query
       (async () => {
         const start = Date.now();
         const { error } = await supabaseAdmin
@@ -66,10 +48,10 @@ export async function GET(request: NextRequest) {
         .select('id', { count: 'exact', head: true })
         .gte('last_active_at', fiveMinAgo),
 
-      // Online users (last 15 min)
+      // Online users (last 15 min) — distinct user_ids
       supabaseAdmin
         .from('device_sessions')
-        .select('user_id', { count: 'exact', head: true })
+        .select('user_id')
         .gte('last_active_at', fifteenMinAgo),
 
       // Maintenance mode
@@ -94,8 +76,9 @@ export async function GET(request: NextRequest) {
       ? (activeSessionsResult.value.count ?? 0)
       : 0;
 
+    // Count distinct users for online count
     const onlineUsers = onlineUsersResult.status === 'fulfilled'
-      ? (onlineUsersResult.value.count ?? 0)
+      ? new Set((onlineUsersResult.value.data ?? []).map((r: any) => r.user_id)).size
       : 0;
 
     const maintenanceMode = maintenanceResult.status === 'fulfilled'

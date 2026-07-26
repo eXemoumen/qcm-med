@@ -1,5 +1,9 @@
--- Migration 059: Create monitoring_events table for real-time monitoring dashboard
--- Stores aggregated metrics snapshots and alerts for the owner monitoring page
+-- Migration 059: Create monitoring_events table + enable Realtime on app_logs
+-- for the owner monitoring dashboard
+
+-- ============================================
+-- 1. monitoring_events table
+-- ============================================
 
 -- Create enum for metric types
 DO $$ BEGIN
@@ -25,9 +29,6 @@ CREATE INDEX IF NOT EXISTS idx_monitoring_events_type_created
 CREATE INDEX IF NOT EXISTS idx_monitoring_events_key_created
   ON monitoring_events (metric_key, created_at DESC);
 
--- Auto-cleanup: delete events older than 7 days (via cron or manual)
--- We'll rely on the app to query only recent data
-
 -- RLS policies
 ALTER TABLE monitoring_events ENABLE ROW LEVEL SECURITY;
 
@@ -51,9 +52,45 @@ CREATE POLICY "Service role can insert monitoring events"
   TO service_role
   WITH CHECK (true);
 
--- Enable Realtime for this table
+-- Enable Realtime for monitoring_events
 ALTER PUBLICATION supabase_realtime ADD TABLE monitoring_events;
+
+-- Auto-cleanup: delete monitoring_events older than 7 days
+-- Uses pg_scheduled_jobs if available, otherwise relies on app-level cleanup
+CREATE OR REPLACE FUNCTION cleanup_monitoring_events()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM monitoring_events
+  WHERE created_at < now() - interval '7 days';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Grant permissions
 GRANT SELECT ON monitoring_events TO authenticated;
 GRANT INSERT ON monitoring_events TO service_role;
+
+-- ============================================
+-- 2. Enable Realtime on app_logs
+-- (Required for live error feed in monitoring dashboard)
+-- ============================================
+
+-- Note: This may already be enabled. The IF NOT EXISTS behavior
+-- varies by Supabase version, so we use a DO block for safety.
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE app_logs;
+EXCEPTION
+  WHEN duplicate_object THEN null; -- already in publication
+END $$;
+
+-- ============================================
+-- 3. Enable Realtime on online_payments
+-- (Required for live payment feed in monitoring dashboard)
+-- ============================================
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE online_payments;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
