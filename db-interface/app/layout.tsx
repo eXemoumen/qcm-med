@@ -6,6 +6,7 @@ import SessionManager from "@/components/SessionManager";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Analytics } from "@vercel/analytics/react";
+import { Toaster } from "sonner";
 
 const fontHeading = Manrope({
   subsets: ["latin"],
@@ -54,6 +55,15 @@ export default function RootLayout({
               <ErrorBoundary>{children}</ErrorBoundary>
             </AppLayout>
         </ThemeProvider>
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          duration={4000}
+          toastOptions={{
+            className: "font-body",
+          }}
+        />
         <Analytics />
       </body>
     </html>

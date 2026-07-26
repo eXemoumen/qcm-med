@@ -24,6 +24,12 @@ export async function GET(request: NextRequest) {
     const authResult = await requireAuthenticatedAdmin(request);
     if (authResult.error) return authResult.error;
 
+    // Parse pagination parameters
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 100); // Max 100 per page
+    const offset = (page - 1) * limit;
+
     // Check if owner
     const { data: userData } = await supabaseAdmin
       .from('users')
@@ -33,10 +39,25 @@ export async function GET(request: NextRequest) {
 
     const isOwner = userData?.role === 'owner';
 
+    // Get total count
+    let countQuery = supabaseAdmin
+      .from('import_batches')
+      .select('*', { count: 'exact', head: true });
+
+    if (!isOwner) {
+      countQuery = countQuery.eq('uploaded_by', authResult.user.id);
+    }
+
+    const { count: total, error: countError } = await countQuery;
+
+    if (countError) throw countError;
+
+    // Get paginated results
     let query = supabaseAdmin
       .from('import_batches')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     // Managers only see their own batches
     if (!isOwner) {
@@ -47,7 +68,15 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error;
 
-    return successResponse(batches || [], rateLimitResult.headers);
+    return successResponse({
+      data: batches || [],
+      pagination: {
+        total: total || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((total || 0) / limit),
+      }
+    }, rateLimitResult.headers);
   } catch (error) {
     logger.error('Failed to list import batches', {
       source: LOG_SOURCE,

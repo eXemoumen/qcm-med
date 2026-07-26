@@ -123,7 +123,7 @@ export const bulkQuestionItemSchema = z.object({
 });
 
 export const bulkQuestionsSchema = z.object({
-  questions: z.array(bulkQuestionItemSchema).min(1, 'At least 1 question required').max(200, 'Maximum 200 questions per import'),
+  questions: z.array(bulkQuestionItemSchema).min(1, 'At least 1 question required').max(1000, 'Maximum 1000 questions per import'),
 });
 
 // ============ Type Exports ============

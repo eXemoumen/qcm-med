@@ -10,6 +10,7 @@ import {
   ArrowLeft, RefreshCw, Check, X, Undo2, Play,
   AlertTriangle, CheckCircle2, XCircle, Edit2, Plus, Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 type PushResult = {
   total: number;
@@ -36,6 +37,10 @@ export default function BatchReviewPage() {
   // Filter state
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  // Status counts from API (for accurate counts)
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const validCountFromAPI = (statusCounts['valid'] || 0) + (statusCounts['warning'] || 0);
+
   const fetchData = async () => {
     setLoading(true);
     setError(null);
@@ -52,6 +57,7 @@ export default function BatchReviewPage() {
 
       setBatch(result.data.batch);
       setQuestions(result.data.questions || []);
+      setStatusCounts(result.data.statusCounts || {});
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -78,7 +84,7 @@ export default function BatchReviewPage() {
 
       if (!response.ok) {
         const result = await response.json();
-        alert(result.error || 'Erreur');
+        toast.error(result.error || 'Erreur');
         return;
       }
 
@@ -103,13 +109,14 @@ export default function BatchReviewPage() {
 
       setSelectedIds(new Set());
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     }
   };
 
   const handlePush = async () => {
     setPushing(true);
     setPushResult(null);
+    toast.loading('Push des approuvées en cours...', { id: 'push-approved' });
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Non authentifié');
@@ -127,6 +134,15 @@ export default function BatchReviewPage() {
 
       setPushResult(result.data);
 
+      const { saved, failed } = result.data;
+      if (saved > 0 && failed === 0) {
+        toast.success(`${saved} question${saved > 1 ? 's' : ''} poussée${saved > 1 ? 's' : ''} avec succès !`, { id: 'push-approved' });
+      } else if (saved > 0 && failed > 0) {
+        toast.warning(`${saved} poussée${saved > 1 ? 's' : ''}, ${failed} échouée${failed > 1 ? 's' : ''}`, { id: 'push-approved', duration: 6000 });
+      } else {
+        toast.error('Aucune question n\'a pu être poussée', { id: 'push-approved' });
+      }
+
       // Update batch status
       if (batch) {
         setBatch({ ...batch, status: result.data.failed === 0 ? 'completed' : 'partial' });
@@ -135,7 +151,7 @@ export default function BatchReviewPage() {
       // Refresh questions to get updated statuses
       await fetchData();
     } catch (err: any) {
-      setError(err.message);
+      toast.error(err.message, { id: 'push-approved' });
     } finally {
       setPushing(false);
     }
@@ -231,19 +247,19 @@ export default function BatchReviewPage() {
       setEditingQuestion(null);
       setEditData(null);
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setSavingEdit(false);
     }
   };
 
   // ── Computed ──
-  const approvedCount = questions.filter((q) => q.status === 'approved').length;
-  const validCount = questions.filter((q) => q.status === 'valid').length;
-  const warningCount = questions.filter((q) => q.status === 'warning').length;
-  const errorCount = questions.filter((q) => q.status === 'error').length;
-  const rejectedCount = questions.filter((q) => q.status === 'rejected').length;
-  const savedCount = questions.filter((q) => q.status === 'saved').length;
+  const approvedCount = statusCounts['approved'] || 0;
+  const validCount = statusCounts['valid'] || 0;
+  const warningCount = statusCounts['warning'] || 0;
+  const errorCount = statusCounts['error'] || 0;
+  const rejectedCount = statusCounts['rejected'] || 0;
+  const savedCount = statusCounts['saved'] || 0;
 
   const statusLabel = (status: string) => {
     switch (status) {
@@ -423,6 +439,82 @@ export default function BatchReviewPage() {
             ))}
           </div>
         </div>
+
+        {/* Push Valid Questions Section */}
+        {validCountFromAPI > 0 && (
+          <div className="bg-gradient-to-r from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 border border-emerald-200 dark:border-emerald-800 rounded-3xl p-6 mb-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl flex items-center justify-center">
+                  <span className="text-2xl">🚀</span>
+                </div>
+                <div>
+                  <h3 className="font-bold text-emerald-800 dark:text-emerald-200 text-lg">
+                    {validCountFromAPI} question{validCountFromAPI > 1 ? 's' : ''} valide{validCountFromAPI > 1 ? 's' : ''} prête{validCountFromAPI > 1 ? 's' : ''}
+                  </h3>
+                  <p className="text-sm text-emerald-600 dark:text-emerald-400">
+                    Poussez directement dans la base de données sans validation individuelle
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  setPushing(true);
+                  toast.loading(`Push de ${validCountFromAPI} questions en cours...`, { id: 'push-valid' });
+
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session) throw new Error('Non authentifié');
+
+                    const response = await fetch(`/api/import/batches/${batchId}/push-valid`, {
+                      method: 'POST',
+                      headers: { Authorization: `Bearer ${session.access_token}` },
+                    });
+
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || 'Erreur lors du push');
+
+                    const { saved, failed, total } = result.data;
+
+                    if (saved > 0 && failed === 0) {
+                      toast.success(`${saved} question${saved > 1 ? 's' : ''} poussée${saved > 1 ? 's' : ''} avec succès !`, { id: 'push-valid' });
+                    } else if (saved > 0 && failed > 0) {
+                      toast.warning(`${saved} poussée${saved > 1 ? 's' : ''}, ${failed} échouée${failed > 1 ? 's' : ''} — vérifiez les erreurs ci-dessous`, { id: 'push-valid', duration: 6000 });
+                    } else {
+                      // saved === 0 — all failed
+                      const errorResults = result.data.results?.filter((r: any) => r.status === 'error') || [];
+                      const uniqueErrors = [...new Set(errorResults.map((r: any) => r.error))];
+                      const errorMsg = uniqueErrors.length > 0
+                        ? uniqueErrors.slice(0, 3).join(' • ') + (uniqueErrors.length > 3 ? ` (+${uniqueErrors.length - 3} autres)` : '')
+                        : 'Aucune question n\'a pu être poussée';
+                      toast.error(errorMsg, { id: 'push-valid', duration: 8000 });
+                    }
+
+                    await fetchData(); // Refresh data
+                  } catch (err: any) {
+                    toast.error(err.message, { id: 'push-valid' });
+                  } finally {
+                    setPushing(false);
+                  }
+                }}
+                disabled={pushing}
+                className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-green-500 text-white rounded-2xl font-bold hover:from-emerald-600 hover:to-green-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/25 active:scale-[0.98] flex items-center gap-3"
+              >
+                {pushing ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin" />
+                    Push en cours...
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-5 h-5" />
+                    ⚡ Pousser les valides
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Bulk Actions */}
         <div className="flex flex-wrap items-center gap-3 mb-6">

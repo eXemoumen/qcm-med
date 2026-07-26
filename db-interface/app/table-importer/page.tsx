@@ -8,6 +8,7 @@ import { parseJson } from '@/lib/import/parse-json';
 import { downloadExcelTemplate, downloadJsonTemplate } from '@/lib/import/template-generator';
 import { supabase } from '@/lib/supabase';
 import { UploadCloud, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function TableImporterPage() {
   const router = useRouter();

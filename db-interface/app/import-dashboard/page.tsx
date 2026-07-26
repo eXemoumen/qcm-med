@@ -5,20 +5,27 @@ import Link from 'next/link';
 import type { ImportBatch } from '@/types/bulk-import';
 import { supabase } from '@/lib/supabase';
 import { RefreshCw, Trash2, Eye, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function ImportDashboardPage() {
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    totalPages: 0,
+  });
 
-  const fetchBatches = async () => {
+  const fetchBatches = async (page: number = 1) => {
     setLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Non authentifié');
 
-      const response = await fetch('/api/import/batches', {
+      const response = await fetch(`/api/import/batches?page=${page}&limit=${pagination.limit}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
@@ -26,6 +33,7 @@ export default function ImportDashboardPage() {
       if (!response.ok) throw new Error(result.error || 'Erreur de chargement');
 
       setBatches(result.data || []);
+      setPagination(result.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -33,7 +41,7 @@ export default function ImportDashboardPage() {
     }
   };
 
-  useEffect(() => { fetchBatches(); }, []);
+  useEffect(() => { fetchBatches(pagination.page); }, [pagination.page]);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -45,7 +53,7 @@ export default function ImportDashboardPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        alert('Non authentifié — reconnectez-vous');
+        toast.error('Non authentifié — reconnectez-vous');
         return;
       }
 
@@ -56,13 +64,14 @@ export default function ImportDashboardPage() {
 
       if (!response.ok) {
         const result = await response.json();
-        alert(result.error || 'Erreur lors de la suppression');
+        toast.error(result.error || 'Erreur lors de la suppression');
         return;
       }
 
       setBatches((prev) => prev.filter((b) => b.id !== batchId));
+      toast.success('Batch supprimé');
     } catch (err: any) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setDeletingId(null);
     }
@@ -93,7 +102,7 @@ export default function ImportDashboardPage() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={fetchBatches}
+              onClick={() => fetchBatches(pagination.page)}
               disabled={loading}
               className="px-4 py-2 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-white/5 transition-all flex items-center gap-2"
             >
@@ -207,6 +216,61 @@ export default function ImportDashboardPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {pagination.totalPages > 1 && (
+              <div className="px-5 py-4 border-t border-slate-100 dark:border-white/5">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-500 dark:text-slate-400">
+                    Affichage {(pagination.page - 1) * pagination.limit + 1} - {Math.min(pagination.page * pagination.limit, pagination.total)}
+                    sur {pagination.total} batches
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPagination(p => ({ ...p, page: p.page - 1 }))}
+                      disabled={pagination.page === 1}
+                      className="px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      ← Précédent
+                    </button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (pagination.totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (pagination.page <= 3) {
+                          pageNum = i + 1;
+                        } else if (pagination.page >= pagination.totalPages - 2) {
+                          pageNum = pagination.totalPages - 4 + i;
+                        } else {
+                          pageNum = pagination.page - 2 + i;
+                        }
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setPagination(p => ({ ...p, page: pageNum }))}
+                            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                              pagination.page === pageNum
+                                ? 'bg-primary text-white'
+                                : 'text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))}
+                      disabled={pagination.page === pagination.totalPages}
+                      className="px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-lg hover:bg-slate-50 dark:hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Suivant →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

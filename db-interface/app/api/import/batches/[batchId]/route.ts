@@ -53,17 +53,66 @@ export async function GET(
     const { batch, error: accessError } = await verifyBatchAccess(params.batchId, authResult.user.id);
     if (accessError) return errorResponse(accessError, 404, rateLimitResult.headers);
 
-    // Get staging questions
-    const { data: questions, error: questionsError } = await supabaseAdmin
+    // Parse pagination parameters
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 100); // Max 100 per page
+    const status = searchParams.get('status'); // Filter by status
+    const offset = (page - 1) * limit;
+
+    // Build query for total count
+    let countQuery = supabaseAdmin
+      .from('question_staging')
+      .select('*', { count: 'exact', head: true })
+      .eq('batch_id', params.batchId);
+
+    if (status) {
+      countQuery = countQuery.eq('status', status);
+    }
+
+    const { count: total, error: countError } = await countQuery;
+
+    if (countError) throw countError;
+
+    // Get paginated staging questions
+    let query = supabaseAdmin
       .from('question_staging')
       .select('*')
       .eq('batch_id', params.batchId)
-      .order('row_index', { ascending: true });
+      .order('row_index', { ascending: true })
+      .range(offset, offset + limit - 1);
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    const { data: questions, error: questionsError } = await query;
 
     if (questionsError) throw questionsError;
 
+    // Get status counts for summary
+    const { data: allQuestions } = await supabaseAdmin
+      .from('question_staging')
+      .select('status')
+      .eq('batch_id', params.batchId);
+
+    const statusCounts = (allQuestions || []).reduce((acc: Record<string, number>, q: any) => {
+      acc[q.status] = (acc[q.status] || 0) + 1;
+      return acc;
+    }, {});
+
     return successResponse(
-      { batch, questions: questions || [] },
+      {
+        batch,
+        questions: questions || [],
+        statusCounts,
+        pagination: {
+          total: total || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((total || 0) / limit),
+        }
+      },
       rateLimitResult.headers
     );
   } catch (error) {

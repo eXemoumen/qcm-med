@@ -1,6 +1,6 @@
 /**
- * API route for pushing approved staging questions to the real questions table
- * POST: Push all approved questions from a batch
+ * API route for pushing all valid questions from a batch
+ * POST: Push all valid + warning questions (not just approved)
  */
 import { NextRequest } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
@@ -14,24 +14,24 @@ import {
 } from '@/lib/security/api-utils';
 import { PREDEFINED_MODULES } from '@/lib/predefined-modules';
 
+let claimedStatus: string | null = null;
+
+const releaseClaim = async (batchId: string) => {
+  if (claimedStatus) {
+    await supabaseAdmin
+      .from('import_batches')
+      .update({ status: claimedStatus })
+      .eq('id', batchId);
+    claimedStatus = null;
+  }
+};
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { batchId: string } }
 ) {
   const startTime = Date.now();
-  const LOG_SOURCE = 'api/import/batches/[batchId]/push/POST';
-
-  let claimedStatus: string | null = null;
-
-  const releaseClaim = async () => {
-    if (claimedStatus) {
-      await supabaseAdmin
-        .from('import_batches')
-        .update({ status: claimedStatus })
-        .eq('id', params.batchId);
-      claimedStatus = null;
-    }
-  };
+  const LOG_SOURCE = 'api/import/batches/[batchId]/push-valid/POST';
 
   try {
     const rateLimitResult = await applyRateLimit(request, 'export');
@@ -65,14 +65,15 @@ export async function POST(
 
     // Block push on already-completed batches
     if (batch.status === 'completed') {
-      return errorResponse('Batch already fully pushed — no approved questions remaining', 400, rateLimitResult.headers);
+      return errorResponse('Batch already fully pushed — no questions remaining', 400, rateLimitResult.headers);
     }
 
-    // Atomically claim the batch — only from non-processing states
+    // Block push on processing batches
     if (batch.status === 'processing') {
-      return errorResponse('Batch is being processed by another request — try again', 409, rateLimitResult.headers);
+      return errorResponse('Batch is being processed — try again', 409, rateLimitResult.headers);
     }
 
+    // Atomically claim the batch
     const { data: claimedBatch, error: claimError } = await supabaseAdmin
       .from('import_batches')
       .update({ status: 'processing' })
@@ -82,32 +83,32 @@ export async function POST(
       .single();
 
     if (claimError || !claimedBatch) {
-      return errorResponse('Batch is being processed by another request — try again', 409, rateLimitResult.headers);
+      return errorResponse('Batch is being processed — try again', 409, rateLimitResult.headers);
     }
 
     claimedStatus = batch.status;
 
-    // Get all approved staging questions
-    const { data: approvedQuestions, error: fetchError } = await supabaseAdmin
+    // Get all valid + warning staging questions
+    const { data: validQuestions, error: fetchError } = await supabaseAdmin
       .from('question_staging')
       .select('*')
       .eq('batch_id', params.batchId)
-      .eq('status', 'approved')
+      .in('status', ['valid', 'warning'])
       .order('row_index', { ascending: true });
 
     if (fetchError) {
-      await releaseClaim();
+      await releaseClaim(params.batchId);
       throw fetchError;
     }
 
-    if (!approvedQuestions || approvedQuestions.length === 0) {
-      await releaseClaim();
-      return errorResponse('No approved questions to push', 400, rateLimitResult.headers);
+    if (!validQuestions || validQuestions.length === 0) {
+      await releaseClaim(params.batchId);
+      return errorResponse('No valid questions to push', 400, rateLimitResult.headers);
     }
 
     // Pre-check courses
     const allCourseNames = new Set<string>();
-    for (const q of approvedQuestions) {
+    for (const q of validQuestions) {
       if (q.cours && Array.isArray(q.cours)) {
         for (const c of q.cours) {
           if (c) allCourseNames.add(c);
@@ -128,7 +129,7 @@ export async function POST(
 
     // Pre-check duplicates
     const uniqueCombos = new Map<string, Set<number>>();
-    for (const q of approvedQuestions) {
+    for (const q of validQuestions) {
       const key = `${q.year}|${q.module_name}|${q.sub_discipline || ''}|${q.exam_type}|${q.exam_year}`;
       if (!uniqueCombos.has(key)) uniqueCombos.set(key, new Set());
       uniqueCombos.get(key)!.add(q.number!);
@@ -169,10 +170,10 @@ export async function POST(
     let saved = 0;
     let failed = 0;
 
-    for (let i = 0; i < approvedQuestions.length; i += BATCH_SIZE) {
-      const batch = approvedQuestions.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < validQuestions.length; i += BATCH_SIZE) {
+      const batchChunk = validQuestions.slice(i, i + BATCH_SIZE);
 
-      for (const sq of batch) {
+      for (const sq of batchChunk) {
         // Check missing courses
         if (sq.cours && Array.isArray(sq.cours)) {
           const qMissing = sq.cours.filter((c: string) => missingCourses.includes(c));
@@ -270,31 +271,34 @@ export async function POST(
       }
     }
 
-    // Update batch status (claim stays — don't release)
+    // Update batch status
     const batchStatus = failed === 0 ? 'completed' : 'partial';
     await supabaseAdmin
       .from('import_batches')
-      .update({ status: batchStatus })
+      .update({
+        status: batchStatus,
+        approved_count: saved,
+      })
       .eq('id', params.batchId);
 
     claimedStatus = null; // Success — don't release
 
     const durationMs = Date.now() - startTime;
 
-    logger.info('Batch push completed', {
+    logger.info('Push valid questions completed', {
       source: LOG_SOURCE,
       userId: authResult.user.id,
-      metadata: { batchId: params.batchId, saved, failed, durationMs },
+      metadata: { batchId: params.batchId, saved, failed, total: validQuestions.length, durationMs },
     });
 
     return successResponse(
-      { total: approvedQuestions.length, saved, failed, results },
+      { total: validQuestions.length, saved, failed, results },
       rateLimitResult.headers
     );
   } catch (error) {
-    await releaseClaim();
+    await releaseClaim(params.batchId);
     const durationMs = Date.now() - startTime;
-    logger.error('Batch push failed', {
+    logger.error('Push valid questions failed', {
       source: LOG_SOURCE,
       metadata: { error: error instanceof Error ? error.message : 'Unknown error', durationMs },
     });

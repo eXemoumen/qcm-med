@@ -37,7 +37,7 @@ function questionNaturalKey(q: { year: string; module_name: string; sub_discipli
   return `${comboKeyStr(comboKeyFromQ(q))}|${q.number}`;
 }
 
-const CHUNK_SIZE = 50;
+const CHUNK_SIZE = 100;
 
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
