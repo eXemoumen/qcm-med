@@ -20,6 +20,7 @@ const navigation = [
 ];
 
 const ownerOnlyNavigation = [
+  { name: "Monitoring", href: "/monitoring", icon: "🔍", badge: "Live" },
   { name: "Statistiques", href: "/statistics", icon: "📈", badge: "Owner" },
   { name: "Tendance", href: "/tendance", icon: "🔥", badge: "Owner" },
   { name: "Utilisateurs", href: "/users", icon: "👥", badge: "Owner" },
