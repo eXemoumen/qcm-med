@@ -1037,6 +1037,24 @@ $$;
 ALTER FUNCTION "public"."prevent_role_escalation"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."prevent_saved_row_modification"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status = 'saved' THEN
+    RAISE EXCEPTION 'Cannot modify staging row with status "saved"';
+  END IF;
+  IF TG_OP = 'DELETE' AND OLD.status = 'saved' THEN
+    RAISE EXCEPTION 'Cannot delete staging row with status "saved"';
+  END IF;
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."prevent_saved_row_modification"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text" DEFAULT NULL::"text", "p_payment_method" "text" DEFAULT NULL::"text", "p_webhook_payload" "jsonb" DEFAULT NULL::"jsonb") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -1264,6 +1282,19 @@ $$;
 
 
 ALTER FUNCTION "public"."update_caisse_transaction_updated_at"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."update_import_batch_timestamp"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."update_import_batch_timestamp"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_session_on_message"() RETURNS "trigger"
@@ -1877,6 +1908,28 @@ CREATE OR REPLACE VIEW "public"."faculty_stats" WITH ("security_invoker"='true')
 ALTER VIEW "public"."faculty_stats" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."import_batches" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "uploaded_by" "uuid",
+    "file_name" "text" NOT NULL,
+    "file_type" "text" NOT NULL,
+    "status" "text" DEFAULT 'pending'::"text",
+    "total_rows" integer DEFAULT 0,
+    "valid_count" integer DEFAULT 0,
+    "warning_count" integer DEFAULT 0,
+    "error_count" integer DEFAULT 0,
+    "approved_count" integer DEFAULT 0,
+    "rejected_count" integer DEFAULT 0,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "import_batches_file_type_check" CHECK (("file_type" = ANY (ARRAY['xlsx'::"text", 'xls'::"text", 'csv'::"text", 'json'::"text"]))),
+    CONSTRAINT "import_batches_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'processing'::"text", 'completed'::"text", 'partial'::"text"])))
+);
+
+
+ALTER TABLE "public"."import_batches" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."knowledge_base" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "title" "text" NOT NULL,
@@ -2073,6 +2126,35 @@ CREATE OR REPLACE VIEW "public"."question_report_stats" WITH ("security_invoker"
 
 
 ALTER VIEW "public"."question_report_stats" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."question_staging" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "batch_id" "uuid" NOT NULL,
+    "row_index" integer NOT NULL,
+    "year" "text",
+    "module_name" "text",
+    "sub_discipline" "text",
+    "exam_type" "text",
+    "exam_year" integer,
+    "number" integer,
+    "question_text" "text",
+    "speciality" "text",
+    "cours" "text"[],
+    "faculty_source" "text",
+    "explanation" "text",
+    "answers" "jsonb" DEFAULT '[]'::"jsonb",
+    "status" "text" DEFAULT 'pending'::"text",
+    "errors" "text"[] DEFAULT '{}'::"text"[],
+    "warnings" "text"[] DEFAULT '{}'::"text"[],
+    "reviewed_by" "uuid",
+    "reviewed_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "question_staging_status_check" CHECK (("status" = ANY (ARRAY['pending'::"text", 'valid'::"text", 'warning'::"text", 'error'::"text", 'approved'::"text", 'rejected'::"text", 'saved'::"text"])))
+);
+
+
+ALTER TABLE "public"."question_staging" OWNER TO "postgres";
 
 
 CREATE OR REPLACE VIEW "public"."sales_point_stats" WITH ("security_invoker"='true') AS
@@ -2291,6 +2373,11 @@ ALTER TABLE ONLY "public"."faculties"
 
 
 
+ALTER TABLE ONLY "public"."import_batches"
+    ADD CONSTRAINT "import_batches_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."knowledge_base"
     ADD CONSTRAINT "knowledge_base_pkey" PRIMARY KEY ("id");
 
@@ -2323,6 +2410,11 @@ ALTER TABLE ONLY "public"."qcm_exams"
 
 ALTER TABLE ONLY "public"."question_reports"
     ADD CONSTRAINT "question_reports_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."question_staging"
+    ADD CONSTRAINT "question_staging_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2559,6 +2651,18 @@ CREATE INDEX "idx_faculties_is_active" ON "public"."faculties" USING "btree" ("i
 
 
 
+CREATE INDEX "idx_import_batches_created_at" ON "public"."import_batches" USING "btree" ("created_at" DESC);
+
+
+
+CREATE INDEX "idx_import_batches_status" ON "public"."import_batches" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_import_batches_uploaded_by" ON "public"."import_batches" USING "btree" ("uploaded_by");
+
+
+
 CREATE INDEX "idx_modules_name" ON "public"."modules" USING "btree" ("name");
 
 
@@ -2636,6 +2740,14 @@ CREATE INDEX "idx_question_reports_status" ON "public"."question_reports" USING 
 
 
 CREATE INDEX "idx_question_reports_user_id" ON "public"."question_reports" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_question_staging_batch_status" ON "public"."question_staging" USING "btree" ("batch_id", "status");
+
+
+
+CREATE INDEX "idx_question_staging_status" ON "public"."question_staging" USING "btree" ("status");
 
 
 
@@ -2843,6 +2955,10 @@ CREATE INDEX "questions_created_at_idx" ON "public"."questions" USING "btree" ("
 
 
 
+CREATE UNIQUE INDEX "uq_question_staging_batch_row" ON "public"."question_staging" USING "btree" ("batch_id", "row_index");
+
+
+
 CREATE OR REPLACE TRIGGER "enforce_max_devices_trigger" BEFORE INSERT ON "public"."device_sessions" FOR EACH ROW EXECUTE FUNCTION "public"."enforce_max_devices"();
 
 
@@ -2855,7 +2971,15 @@ CREATE OR REPLACE TRIGGER "trg_prevent_role_escalation" BEFORE UPDATE ON "public
 
 
 
+CREATE OR REPLACE TRIGGER "trigger_prevent_saved_row_modification" BEFORE DELETE OR UPDATE ON "public"."question_staging" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_saved_row_modification"();
+
+
+
 CREATE OR REPLACE TRIGGER "trigger_update_caisse_transaction_updated_at" BEFORE UPDATE ON "public"."caisse_transactions" FOR EACH ROW EXECUTE FUNCTION "public"."update_caisse_transaction_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "trigger_update_import_batch_timestamp" BEFORE UPDATE ON "public"."import_batches" FOR EACH ROW EXECUTE FUNCTION "public"."update_import_batch_timestamp"();
 
 
 
@@ -2999,6 +3123,11 @@ ALTER TABLE ONLY "public"."course_resources"
 
 
 
+ALTER TABLE ONLY "public"."import_batches"
+    ADD CONSTRAINT "import_batches_uploaded_by_fkey" FOREIGN KEY ("uploaded_by") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."online_payments"
     ADD CONSTRAINT "online_payments_activation_key_id_fkey" FOREIGN KEY ("activation_key_id") REFERENCES "public"."activation_keys"("id") ON DELETE SET NULL;
 
@@ -3026,6 +3155,16 @@ ALTER TABLE ONLY "public"."question_reports"
 
 ALTER TABLE ONLY "public"."question_reports"
     ADD CONSTRAINT "question_reports_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."question_staging"
+    ADD CONSTRAINT "question_staging_batch_id_fkey" FOREIGN KEY ("batch_id") REFERENCES "public"."import_batches"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."question_staging"
+    ADD CONSTRAINT "question_staging_reviewed_by_fkey" FOREIGN KEY ("reviewed_by") REFERENCES "auth"."users"("id") ON DELETE SET NULL;
 
 
 
@@ -3069,6 +3208,22 @@ ALTER TABLE ONLY "public"."users"
 
 
 
+CREATE POLICY "Admin activation key updates" ON "public"."activation_keys" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"])))))) WITH CHECK ((EXISTS ( SELECT
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"]))))));
+
+
+
+CREATE POLICY "Admin payment updates" ON "public"."online_payments" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"])))))) WITH CHECK ((EXISTS ( SELECT
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = ANY (ARRAY['owner'::"public"."user_role", 'admin'::"public"."user_role"]))))));
+
+
+
 CREATE POLICY "Admins can delete answers" ON "public"."answers" FOR DELETE USING ("public"."is_admin_or_higher"());
 
 
@@ -3108,10 +3263,6 @@ CREATE POLICY "Admins delete reports" ON "public"."question_reports" FOR DELETE 
 
 
 CREATE POLICY "Admins insert activation keys" ON "public"."activation_keys" FOR INSERT TO "authenticated" WITH CHECK (( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher"));
-
-
-
-CREATE POLICY "Admins update payments" ON "public"."online_payments" FOR UPDATE TO "authenticated" USING (( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher")) WITH CHECK (( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher"));
 
 
 
@@ -3163,6 +3314,10 @@ CREATE POLICY "Managers can create resources" ON "public"."course_resources" FOR
 
 
 
+CREATE POLICY "Managers can insert batches" ON "public"."import_batches" FOR INSERT TO "authenticated" WITH CHECK (("uploaded_by" = "auth"."uid"()));
+
+
+
 CREATE POLICY "Managers can update answers" ON "public"."answers" FOR UPDATE USING ("public"."is_manager_or_higher"());
 
 
@@ -3172,6 +3327,18 @@ CREATE POLICY "Managers can update questions" ON "public"."questions" FOR UPDATE
 
 
 CREATE POLICY "Managers can update resources" ON "public"."course_resources" FOR UPDATE USING ("public"."is_manager_or_higher"());
+
+
+
+CREATE POLICY "Managers delete own batches" ON "public"."import_batches" FOR DELETE TO "authenticated" USING (("uploaded_by" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Managers see own batches" ON "public"."import_batches" FOR SELECT TO "authenticated" USING (("uploaded_by" = "auth"."uid"()));
+
+
+
+CREATE POLICY "Managers update own batches" ON "public"."import_batches" FOR UPDATE TO "authenticated" USING (("uploaded_by" = "auth"."uid"())) WITH CHECK (("uploaded_by" = "auth"."uid"()));
 
 
 
@@ -3249,6 +3416,12 @@ CREATE POLICY "Owners delete admin payments" ON "public"."admin_payments" FOR DE
 
 
 
+CREATE POLICY "Owners delete all batches" ON "public"."import_batches" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+
+
+
 CREATE POLICY "Owners delete faculties" ON "public"."faculties" FOR DELETE TO "authenticated" USING (( SELECT "public"."is_owner"() AS "is_owner"));
 
 
@@ -3281,7 +3454,21 @@ CREATE POLICY "Owners manage sales points" ON "public"."sales_points" TO "authen
 
 
 
+CREATE POLICY "Owners see all batches" ON "public"."import_batches" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+
+
+
 CREATE POLICY "Owners update admin payments" ON "public"."admin_payments" FOR UPDATE TO "authenticated" USING (( SELECT "public"."is_owner"() AS "is_owner"));
+
+
+
+CREATE POLICY "Owners update all batches" ON "public"."import_batches" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3325,7 +3512,19 @@ CREATE POLICY "Service role can read logs" ON "public"."app_logs" FOR SELECT TO 
 
 
 
-CREATE POLICY "Update activation keys" ON "public"."activation_keys" FOR UPDATE TO "authenticated", "anon" USING ((("is_used" = false) OR ( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher"))) WITH CHECK ((( SELECT "public"."is_admin_or_higher"() AS "is_admin_or_higher") OR (("is_used" = true) AND ("used_by" = ( SELECT "auth"."uid"() AS "uid")) AND ("used_at" IS NOT NULL))));
+CREATE POLICY "Staging: managers access own batch rows" ON "public"."question_staging" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."import_batches"
+  WHERE (("import_batches"."id" = "question_staging"."batch_id") AND ("import_batches"."uploaded_by" = "auth"."uid"()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."import_batches"
+  WHERE (("import_batches"."id" = "question_staging"."batch_id") AND ("import_batches"."uploaded_by" = "auth"."uid"())))));
+
+
+
+CREATE POLICY "Staging: owners access all rows" ON "public"."question_staging" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
 
 
 
@@ -3519,6 +3718,9 @@ ALTER TABLE "public"."device_sessions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."faculties" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."import_batches" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."knowledge_base" ENABLE ROW LEVEL SECURITY;
 
 
@@ -3536,6 +3738,9 @@ ALTER TABLE "public"."qcm_exams" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."question_reports" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."question_staging" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."questions" ENABLE ROW LEVEL SECURITY;
@@ -4273,6 +4478,12 @@ GRANT ALL ON FUNCTION "public"."prevent_role_escalation"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."prevent_saved_row_modification"() TO "anon";
+GRANT ALL ON FUNCTION "public"."prevent_saved_row_modification"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."prevent_saved_row_modification"() TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text", "p_payment_method" "text", "p_webhook_payload" "jsonb") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."process_successful_payment"("p_checkout_id" "text", "p_invoice_id" "text", "p_payment_method" "text", "p_webhook_payload" "jsonb") TO "service_role";
 
@@ -4296,6 +4507,12 @@ GRANT ALL ON FUNCTION "public"."toggle_plan_active"("plan_id" "uuid") TO "servic
 GRANT ALL ON FUNCTION "public"."update_caisse_transaction_updated_at"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_caisse_transaction_updated_at"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_caisse_transaction_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."update_import_batch_timestamp"() TO "anon";
+GRANT ALL ON FUNCTION "public"."update_import_batch_timestamp"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."update_import_batch_timestamp"() TO "service_role";
 
 
 
@@ -4482,6 +4699,12 @@ GRANT ALL ON TABLE "public"."faculty_stats" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."import_batches" TO "anon";
+GRANT ALL ON TABLE "public"."import_batches" TO "authenticated";
+GRANT ALL ON TABLE "public"."import_batches" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."knowledge_base" TO "anon";
 GRANT ALL ON TABLE "public"."knowledge_base" TO "authenticated";
 GRANT ALL ON TABLE "public"."knowledge_base" TO "service_role";
@@ -4527,6 +4750,12 @@ GRANT ALL ON TABLE "public"."question_reports" TO "service_role";
 GRANT ALL ON TABLE "public"."question_report_stats" TO "anon";
 GRANT ALL ON TABLE "public"."question_report_stats" TO "authenticated";
 GRANT ALL ON TABLE "public"."question_report_stats" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."question_staging" TO "anon";
+GRANT ALL ON TABLE "public"."question_staging" TO "authenticated";
+GRANT ALL ON TABLE "public"."question_staging" TO "service_role";
 
 
 
