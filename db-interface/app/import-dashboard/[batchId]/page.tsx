@@ -109,12 +109,14 @@ export default function BatchReviewPage() {
   const [availableCourses, setAvailableCourses] = useState<{ name: string; id: string }[]>([]);
 
   useEffect(() => {
-    const fetchCourses = async () => {
-      if (!editData?.year || !editData?.module_name) {
-        setAvailableCourses([]);
-        return;
-      }
+    if (!editData?.year || !editData?.module_name) {
+      setAvailableCourses([]);
+      return;
+    }
 
+    let cancelled = false;
+
+    const fetchCourses = async () => {
       try {
         let query = supabase
           .from('courses')
@@ -130,15 +132,20 @@ export default function BatchReviewPage() {
         }
 
         const { data, error } = await query;
-        if (!error && data) {
+        if (cancelled) return;
+
+        if (error || !data) {
+          setAvailableCourses([]);
+        } else {
           setAvailableCourses(data);
         }
       } catch {
-        setAvailableCourses([]);
+        if (!cancelled) setAvailableCourses([]);
       }
     };
 
     fetchCourses();
+    return () => { cancelled = true; };
   }, [editData?.year, editData?.module_name, editData?.sub_discipline]);
 
   const fetchData = async () => {
@@ -1101,13 +1108,16 @@ export default function BatchReviewPage() {
                       onChange={(e) => {
                         const newModuleName = e.target.value;
                         const newModule = PREDEFINED_MODULES.find((m) => m.name === newModuleName && m.year === editData.year);
-                        const newExamTypes = newModule ? EXAM_TYPES_BY_MODULE_TYPE[newModule.type] : [];
+                        const newExamTypes = (newModule ? EXAM_TYPES_BY_MODULE_TYPE[newModule.type] : null) || ['EMD', 'Rattrapage'];
                         const needsSubDiscipline = newModule?.hasSubDisciplines || false;
+                        const availableSubs = needsSubDiscipline ? (PREDEFINED_SUBDISCIPLINES[newModuleName] || []) : [];
+                        const validSubDiscipline = needsSubDiscipline && availableSubs.includes(editData.sub_discipline) ? editData.sub_discipline : '';
                         setEditData({
                           ...editData,
                           module_name: newModuleName,
                           exam_type: newExamTypes.includes(editData.exam_type) ? editData.exam_type : newExamTypes[0] || '',
-                          sub_discipline: needsSubDiscipline ? editData.sub_discipline : '',
+                          sub_discipline: validSubDiscipline,
+                          cours: [],
                         });
                       }}
                       className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-slate-900 dark:text-white transition-all text-sm appearance-none"

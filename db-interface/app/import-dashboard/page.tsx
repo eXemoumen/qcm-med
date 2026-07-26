@@ -35,7 +35,7 @@ export default function ImportDashboardPage() {
       // successResponse wraps in { success, data: { data: [...], pagination: {...} } }
       const payload = result.data;
       setBatches(Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []);
-      setPagination(payload?.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
+      setPagination((prev) => payload?.pagination || { ...prev, total: 0, totalPages: 0 });
     } catch (err: any) {
       setError(err.message);
     } finally {
