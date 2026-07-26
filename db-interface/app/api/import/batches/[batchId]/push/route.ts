@@ -126,7 +126,10 @@ export async function POST(
       missingCourses = Array.from(allCourseNames).filter((name) => !existingNames.has(name));
     }
 
-    // Pre-check duplicates
+    // Pre-check: fetch existing numbers per combo from DB
+    const existingNumbersByCombo = new Map<string, Set<number>>();
+    const maxNumberByCombo = new Map<string, number>();
+
     const uniqueCombos = new Map<string, Set<number>>();
     for (const q of approvedQuestions) {
       const key = `${q.year}|${q.module_name}|${q.sub_discipline || ''}|${q.exam_type}|${q.exam_year}`;
@@ -134,8 +137,7 @@ export async function POST(
       uniqueCombos.get(key)!.add(q.number!);
     }
 
-    const dbDuplicateMap = new Map<string, Set<number>>();
-    for (const [keyStr, numbers] of uniqueCombos) {
+    for (const [keyStr] of uniqueCombos) {
       const [year, module_name, sub_discipline, exam_type, exam_year] = keyStr.split('|');
       let query = supabaseAdmin
         .from('questions')
@@ -153,8 +155,27 @@ export async function POST(
 
       const { data: existing } = await query;
       if (existing && existing.length > 0) {
-        dbDuplicateMap.set(keyStr, new Set(existing.map((q: any) => q.number)));
+        const nums = new Set(existing.map((q: any) => q.number));
+        existingNumbersByCombo.set(keyStr, nums);
+        maxNumberByCombo.set(keyStr, Math.max(...Array.from(nums)));
+      } else {
+        existingNumbersByCombo.set(keyStr, new Set());
+        maxNumberByCombo.set(keyStr, 0);
       }
+    }
+
+    // Track numbers assigned during this push to avoid in-batch conflicts
+    const assignedNumbersByCombo = new Map<string, Set<number>>();
+
+    // Helper: find next available number for a combo
+    function getNextAvailableNumber(comboKey: string): number {
+      const existing = existingNumbersByCombo.get(comboKey) || new Set();
+      const assigned = assignedNumbersByCombo.get(comboKey) || new Set();
+      let candidate = (maxNumberByCombo.get(comboKey) || 0) + 1;
+      while (existing.has(candidate) || assigned.has(candidate)) {
+        candidate++;
+      }
+      return candidate;
     }
 
     // Insert questions in batches
@@ -163,11 +184,14 @@ export async function POST(
       stagingId: string;
       status: 'saved' | 'error';
       questionId?: string;
+      originalNumber?: number;
+      newNumber?: number;
       error?: string;
     }[] = [];
 
     let saved = 0;
     let failed = 0;
+    let renumbered = 0;
 
     for (let i = 0; i < approvedQuestions.length; i += BATCH_SIZE) {
       const batch = approvedQuestions.slice(i, i + BATCH_SIZE);
@@ -187,18 +211,20 @@ export async function POST(
           }
         }
 
-        // Check duplicates
+        // Auto-renumber: check if number is taken, if so assign next available
         const comboKey = `${sq.year}|${sq.module_name}|${sq.sub_discipline || ''}|${sq.exam_type}|${sq.exam_year}`;
-        const dbNums = dbDuplicateMap.get(comboKey);
-        if (dbNums && dbNums.has(sq.number!)) {
-          await supabaseAdmin
-            .from('question_staging')
-            .update({ status: 'error', errors: [`Question #${sq.number} already exists in database`] })
-            .eq('id', sq.id);
-          results.push({ stagingId: sq.id, status: 'error', error: `Question #${sq.number} already exists` });
-          failed++;
-          continue;
+        const existing = existingNumbersByCombo.get(comboKey) || new Set();
+        const assigned = assignedNumbersByCombo.get(comboKey) || new Set();
+        let finalNumber = sq.number!;
+
+        if (existing.has(finalNumber) || assigned.has(finalNumber)) {
+          finalNumber = getNextAvailableNumber(comboKey);
+          renumbered++;
         }
+
+        // Track this number as assigned
+        if (!assignedNumbersByCombo.has(comboKey)) assignedNumbersByCombo.set(comboKey, new Set());
+        assignedNumbersByCombo.get(comboKey)!.add(finalNumber);
 
         // Get module type
         const mod = PREDEFINED_MODULES.find((m) => m.name === sq.module_name && m.year === sq.year);
@@ -210,7 +236,7 @@ export async function POST(
             sub_discipline: sq.sub_discipline || null,
             exam_type: sq.exam_type,
             exam_year: sq.exam_year,
-            number: sq.number,
+            number: finalNumber,
             question_text: sq.question_text,
             speciality: sq.speciality || 'Médecine',
             cours: sq.cours || null,
@@ -247,17 +273,27 @@ export async function POST(
             }
           }
 
-          // Update staging row
+          // Update staging row with final number and status
           await supabaseAdmin
             .from('question_staging')
-            .update({ status: 'saved', reviewed_by: authResult.user.id, reviewed_at: new Date().toISOString() })
+            .update({
+              status: 'saved',
+              number: finalNumber,
+              reviewed_by: authResult.user.id,
+              reviewed_at: new Date().toISOString(),
+              warnings: finalNumber !== sq.number
+                ? [...(sq.warnings || []), `Numéro renuméroté: ${sq.number} → ${finalNumber}`]
+                : sq.warnings || [],
+            })
             .eq('id', sq.id);
 
-          // Track in duplicate map
-          if (!dbDuplicateMap.has(comboKey)) dbDuplicateMap.set(comboKey, new Set());
-          dbDuplicateMap.get(comboKey)!.add(sq.number!);
-
-          results.push({ stagingId: sq.id, status: 'saved', questionId: newQuestion.id });
+          results.push({
+            stagingId: sq.id,
+            status: 'saved',
+            questionId: newQuestion.id,
+            originalNumber: sq.number !== finalNumber ? sq.number : undefined,
+            newNumber: sq.number !== finalNumber ? finalNumber : undefined,
+          });
           saved++;
         } catch (err: any) {
           await supabaseAdmin
@@ -284,11 +320,11 @@ export async function POST(
     logger.info('Batch push completed', {
       source: LOG_SOURCE,
       userId: authResult.user.id,
-      metadata: { batchId: params.batchId, saved, failed, durationMs },
+      metadata: { batchId: params.batchId, saved, failed, renumbered, durationMs },
     });
 
     return successResponse(
-      { total: approvedQuestions.length, saved, failed, results },
+      { total: approvedQuestions.length, saved, failed, renumbered, results },
       rateLimitResult.headers
     );
   } catch (error) {

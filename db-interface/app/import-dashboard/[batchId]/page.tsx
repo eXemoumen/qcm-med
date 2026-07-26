@@ -16,7 +16,22 @@ type PushResult = {
   total: number;
   saved: number;
   failed: number;
-  results: { stagingId: string; status: string; error?: string }[];
+  renumbered?: number;
+  results: {
+    stagingId: string;
+    status: string;
+    questionId?: string;
+    originalNumber?: number;
+    newNumber?: number;
+    error?: string;
+  }[];
+};
+
+type PushLog = {
+  id: string;
+  timestamp: string;
+  type: 'push' | 'push-valid';
+  result: PushResult;
 };
 
 export default function BatchReviewPage() {
@@ -28,6 +43,8 @@ export default function BatchReviewPage() {
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<PushResult | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'questions' | 'logs'>('questions');
+  const [pushLogs, setPushLogs] = useState<PushLog[]>([]);
 
   // Edit modal state
   const [editingQuestion, setEditingQuestion] = useState<StagingQuestion | null>(null);
@@ -40,6 +57,17 @@ export default function BatchReviewPage() {
   // Status counts from API (for accurate counts)
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const validCountFromAPI = (statusCounts['valid'] || 0) + (statusCounts['warning'] || 0);
+
+  // Log a push result
+  const addPushLog = (type: 'push' | 'push-valid', result: PushResult) => {
+    const log: PushLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      type,
+      result,
+    };
+    setPushLogs((prev) => [log, ...prev]);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -133,6 +161,7 @@ export default function BatchReviewPage() {
       if (!response.ok) throw new Error(result.error || 'Erreur lors de la poussée');
 
       setPushResult(result.data);
+      addPushLog('push', result.data);
 
       const { saved, failed } = result.data;
       if (saved > 0 && failed === 0) {
@@ -450,7 +479,7 @@ export default function BatchReviewPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-emerald-800 dark:text-emerald-200 text-lg">
-                    {validCountFromAPI} question{validCountFromAPI > 1 ? 's' : ''} valide{validCountFromAPI > 1 ? 's' : ''} prête{validCountFromAPI > 1 ? 's' : ''}
+                    {validCountFromAPI} question{validCountFromAPI > 1 ? 's' : ''} prête{validCountFromAPI > 1 ? 's' : ''} à pousser
                   </h3>
                   <p className="text-sm text-emerald-600 dark:text-emerald-400">
                     Poussez directement dans la base de données sans validation individuelle
@@ -474,12 +503,18 @@ export default function BatchReviewPage() {
                     const result = await response.json();
                     if (!response.ok) throw new Error(result.error || 'Erreur lors du push');
 
-                    const { saved, failed, total } = result.data;
+                    const { saved, failed, renumbered } = result.data;
 
                     if (saved > 0 && failed === 0) {
-                      toast.success(`${saved} question${saved > 1 ? 's' : ''} poussée${saved > 1 ? 's' : ''} avec succès !`, { id: 'push-valid' });
+                      const msg = renumbered > 0
+                        ? `${saved} question${saved > 1 ? 's' : ''} poussée${saved > 1 ? 's' : ''} (${renumbered} renumérotée${renumbered > 1 ? 's' : ''})`
+                        : `${saved} question${saved > 1 ? 's' : ''} poussée${saved > 1 ? 's' : ''} avec succès !`;
+                      toast.success(msg, { id: 'push-valid', duration: renumbered > 0 ? 6000 : 4000 });
                     } else if (saved > 0 && failed > 0) {
-                      toast.warning(`${saved} poussée${saved > 1 ? 's' : ''}, ${failed} échouée${failed > 1 ? 's' : ''} — vérifiez les erreurs ci-dessous`, { id: 'push-valid', duration: 6000 });
+                      const msg = renumbered > 0
+                        ? `${saved} poussée${saved > 1 ? 's' : ''} (${renumbered} renumérotée${renumbered > 1 ? 's' : ''}), ${failed} échouée${failed > 1 ? 's' : ''}`
+                        : `${saved} poussée${saved > 1 ? 's' : ''}, ${failed} échouée${failed > 1 ? 's' : ''}`;
+                      toast.warning(msg, { id: 'push-valid', duration: 6000 });
                     } else {
                       // saved === 0 — all failed
                       const errorResults = result.data.results?.filter((r: any) => r.status === 'error') || [];
@@ -490,6 +525,7 @@ export default function BatchReviewPage() {
                       toast.error(errorMsg, { id: 'push-valid', duration: 8000 });
                     }
 
+                    addPushLog('push-valid', result.data);
                     await fetchData(); // Refresh data
                   } catch (err: any) {
                     toast.error(err.message, { id: 'push-valid' });
@@ -515,6 +551,34 @@ export default function BatchReviewPage() {
             </div>
           </div>
         )}
+
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-1 mb-6 bg-white dark:bg-slate-900/80 rounded-2xl border border-slate-200 dark:border-white/5 p-1.5 shadow-sm w-fit">
+          <button
+            onClick={() => setActiveTab('questions')}
+            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'questions'
+                ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
+            }`}
+          >
+            📝 Questions
+            <span className="px-2 py-0.5 rounded-full text-xs bg-white/20">{batch?.total_rows || 0}</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'logs'
+                ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'
+            }`}
+          >
+            📊 Logs
+            {pushLogs.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs bg-white/20">{pushLogs.length}</span>
+            )}
+          </button>
+        </div>
 
         {/* Bulk Actions */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
@@ -548,6 +612,9 @@ export default function BatchReviewPage() {
           )}
         </div>
 
+        {/* ═══════════════════════ Questions Tab ═══════════════════════ */}
+        {activeTab === 'questions' && (
+          <>
         {/* Question Cards (catalog-style) */}
         <div className="space-y-6">
           {filteredQuestions.map((q) => {
@@ -775,6 +842,126 @@ export default function BatchReviewPage() {
             </div>
           )}
         </div>
+          </>
+        )}
+
+        {/* ═══════════════════════ Logs Tab ═══════════════════════ */}
+        {activeTab === 'logs' && (
+          <div className="bg-white dark:bg-slate-900/80 rounded-3xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
+            {pushLogs.length === 0 ? (
+              <div className="p-12 text-center">
+                <p className="text-4xl mb-3">📊</p>
+                <p className="text-lg font-bold text-slate-900 dark:text-white">Aucun log</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  Les logs de push apparaîtront ici après chaque opération
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-white/5">
+                {pushLogs.map((log) => {
+                  const hasRenumbered = log.result.renumbered && log.result.renumbered > 0;
+                  const hasErrors = log.result.failed > 0;
+                  const allSaved = log.result.failed === 0 && log.result.saved > 0;
+
+                  return (
+                    <div key={log.id} className="p-5 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+                      {/* Log Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold ${
+                            log.type === 'push-valid'
+                              ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                          }`}>
+                            {log.type === 'push-valid' ? '🚀 Push Valid' : '👍 Push Approuvées'}
+                          </span>
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                            allSaved
+                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                              : hasErrors
+                                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                          }`}>
+                            {allSaved ? '✅' : hasErrors ? '⚠️' : '❌'}
+                            {log.result.saved}/{log.result.total}
+                          </span>
+                          {hasRenumbered && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+                              🔄 {log.result.renumbered} renumérotée{log.result.renumbered! > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">
+                          {new Date(log.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                      </div>
+
+                      {/* Log Details */}
+                      <div className="grid grid-cols-3 gap-3 mb-3">
+                        <div className="bg-green-50 dark:bg-green-900/10 rounded-xl px-3 py-2">
+                          <p className="text-xs text-green-600 dark:text-green-400 font-bold">Sauvegardées</p>
+                          <p className="text-lg font-black text-green-700 dark:text-green-300">{log.result.saved}</p>
+                        </div>
+                        <div className="bg-red-50 dark:bg-red-900/10 rounded-xl px-3 py-2">
+                          <p className="text-xs text-red-600 dark:text-red-400 font-bold">Échouées</p>
+                          <p className="text-lg font-black text-red-700 dark:text-red-300">{log.result.failed}</p>
+                        </div>
+                        <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl px-3 py-2">
+                          <p className="text-xs text-purple-600 dark:text-purple-400 font-bold">Renumérotées</p>
+                          <p className="text-lg font-black text-purple-700 dark:text-purple-300">{log.result.renumbered || 0}</p>
+                        </div>
+                      </div>
+
+                      {/* Renumbered Questions List */}
+                      {hasRenumbered && (
+                        <div className="bg-purple-50 dark:bg-purple-900/10 rounded-xl p-3 mt-2">
+                          <p className="text-xs font-bold text-purple-700 dark:text-purple-300 mb-2">📋 Renumérotées:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {log.result.results
+                              .filter((r) => r.originalNumber !== undefined)
+                              .slice(0, 20)
+                              .map((r, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 px-2 py-1 bg-white dark:bg-slate-800 rounded-lg text-xs font-medium text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                  <span className="line-through text-slate-400">Q{r.originalNumber}</span>
+                                  <span>→</span>
+                                  <span className="font-bold">Q{r.newNumber}</span>
+                                </span>
+                              ))}
+                            {(log.result.renumbered || 0) > 20 && (
+                              <span className="text-xs text-purple-500 dark:text-purple-400">
+                                +{(log.result.renumbered || 0) - 20} autres
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Errors List */}
+                      {hasErrors && (
+                        <div className="bg-red-50 dark:bg-red-900/10 rounded-xl p-3 mt-2">
+                          <p className="text-xs font-bold text-red-700 dark:text-red-300 mb-2">❌ Erreurs:</p>
+                          <div className="space-y-1">
+                            {log.result.results
+                              .filter((r) => r.status === 'error')
+                              .slice(0, 5)
+                              .map((r, i) => (
+                                <p key={i} className="text-xs text-red-600 dark:text-red-400">• {r.error}</p>
+                              ))}
+                            {log.result.results.filter((r) => r.status === 'error').length > 5 && (
+                              <p className="text-xs text-red-500 dark:text-red-400">
+                                +{log.result.results.filter((r) => r.status === 'error').length - 5} autres erreurs
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ═══════════════════════ Edit Modal ═══════════════════════ */}
