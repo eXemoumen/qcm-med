@@ -115,6 +115,17 @@ CREATE TYPE "public"."module_type" AS ENUM (
 ALTER TYPE "public"."module_type" OWNER TO "postgres";
 
 
+CREATE TYPE "public"."monitoring_metric_type" AS ENUM (
+    'health',
+    'errors',
+    'activity',
+    'business'
+);
+
+
+ALTER TYPE "public"."monitoring_metric_type" OWNER TO "postgres";
+
+
 CREATE TYPE "public"."payment_source" AS ENUM (
     'manual',
     'online'
@@ -305,6 +316,31 @@ $$;
 
 
 ALTER FUNCTION "public"."cascade_course_rename"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."cleanup_monitoring_events"() RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+BEGIN
+  DELETE FROM monitoring_events
+  WHERE created_at < now() - interval '7 days';
+END;
+$$;
+
+
+ALTER FUNCTION "public"."cleanup_monitoring_events"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."count_online_users"("since" timestamp with time zone) RETURNS integer
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT COUNT(DISTINCT user_id)::INTEGER
+  FROM device_sessions
+  WHERE last_active_at >= since;
+$$;
+
+
+ALTER FUNCTION "public"."count_online_users"("since" timestamp with time zone) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text" DEFAULT NULL::"text", "p_customer_phone" "text" DEFAULT NULL::"text", "p_amount" integer DEFAULT 500000, "p_currency" "text" DEFAULT 'dzd'::"text", "p_duration_days" integer DEFAULT 365, "p_checkout_url" "text" DEFAULT NULL::"text", "p_success_url" "text" DEFAULT NULL::"text", "p_failure_url" "text" DEFAULT NULL::"text", "p_metadata" "jsonb" DEFAULT NULL::"jsonb") RETURNS "jsonb"
@@ -1983,6 +2019,20 @@ COMMENT ON TABLE "public"."modules" IS 'Predefined modules from French medical c
 
 
 
+CREATE TABLE IF NOT EXISTS "public"."monitoring_events" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "metric_type" "public"."monitoring_metric_type" NOT NULL,
+    "metric_key" "text" NOT NULL,
+    "metric_value" "jsonb" DEFAULT '{}'::"jsonb",
+    "severity" "text" DEFAULT 'info'::"text",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    CONSTRAINT "monitoring_events_severity_check" CHECK (("severity" = ANY (ARRAY['info'::"text", 'warning'::"text", 'critical'::"text"])))
+);
+
+
+ALTER TABLE "public"."monitoring_events" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."online_payments" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "checkout_id" "text" NOT NULL,
@@ -2393,6 +2443,11 @@ ALTER TABLE ONLY "public"."modules"
 
 
 
+ALTER TABLE ONLY "public"."monitoring_events"
+    ADD CONSTRAINT "monitoring_events_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."online_payments"
     ADD CONSTRAINT "online_payments_checkout_id_key" UNIQUE ("checkout_id");
 
@@ -2587,6 +2642,10 @@ CREATE INDEX "idx_answers_question" ON "public"."answers" USING "btree" ("questi
 
 
 
+CREATE INDEX "idx_answers_question_id" ON "public"."answers" USING "btree" ("question_id");
+
+
+
 CREATE INDEX "idx_app_config_updated_by" ON "public"."app_config" USING "btree" ("updated_by");
 
 
@@ -2659,7 +2718,15 @@ CREATE INDEX "idx_import_batches_status" ON "public"."import_batches" USING "btr
 
 
 
+CREATE INDEX "idx_import_batches_status_created" ON "public"."import_batches" USING "btree" ("status", "created_at" DESC);
+
+
+
 CREATE INDEX "idx_import_batches_uploaded_by" ON "public"."import_batches" USING "btree" ("uploaded_by");
+
+
+
+CREATE INDEX "idx_import_batches_uploaded_created" ON "public"."import_batches" USING "btree" ("uploaded_by", "created_at" DESC);
 
 
 
@@ -2672,6 +2739,14 @@ CREATE INDEX "idx_modules_type" ON "public"."modules" USING "btree" ("type");
 
 
 CREATE INDEX "idx_modules_year" ON "public"."modules" USING "btree" ("year");
+
+
+
+CREATE INDEX "idx_monitoring_events_key_created" ON "public"."monitoring_events" USING "btree" ("metric_key", "created_at" DESC);
+
+
+
+CREATE INDEX "idx_monitoring_events_type_created" ON "public"."monitoring_events" USING "btree" ("metric_type", "created_at" DESC);
 
 
 
@@ -2743,11 +2818,27 @@ CREATE INDEX "idx_question_reports_user_id" ON "public"."question_reports" USING
 
 
 
+CREATE INDEX "idx_question_staging_batch_row" ON "public"."question_staging" USING "btree" ("batch_id", "row_index");
+
+
+
 CREATE INDEX "idx_question_staging_batch_status" ON "public"."question_staging" USING "btree" ("batch_id", "status");
 
 
 
 CREATE INDEX "idx_question_staging_status" ON "public"."question_staging" USING "btree" ("status");
+
+
+
+CREATE INDEX "idx_question_staging_status_count" ON "public"."question_staging" USING "btree" ("batch_id", "status");
+
+
+
+CREATE INDEX "idx_question_staging_valid" ON "public"."question_staging" USING "btree" ("batch_id", "status") WHERE ("status" = 'valid'::"text");
+
+
+
+CREATE INDEX "idx_questions_composite_lookup" ON "public"."questions" USING "btree" ("year", "module_name", "exam_type", "exam_year", "number");
 
 
 
@@ -3354,6 +3445,12 @@ CREATE POLICY "Owner can insert caisse transactions" ON "public"."caisse_transac
 
 
 
+CREATE POLICY "Owner can read monitoring events" ON "public"."monitoring_events" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."users"
+  WHERE (("users"."id" = "auth"."uid"()) AND ("users"."role" = 'owner'::"public"."user_role")))));
+
+
+
 CREATE POLICY "Owner can update caisse checkouts" ON "public"."caisse_checkouts" FOR UPDATE USING ("public"."is_owner"()) WITH CHECK ("public"."is_owner"());
 
 
@@ -3505,6 +3602,10 @@ CREATE POLICY "Public view knowledge base" ON "public"."knowledge_base" FOR SELE
 
 
 CREATE POLICY "Service role can insert logs" ON "public"."app_logs" FOR INSERT TO "service_role" WITH CHECK (true);
+
+
+
+CREATE POLICY "Service role can insert monitoring events" ON "public"."monitoring_events" FOR INSERT TO "service_role" WITH CHECK (true);
 
 
 
@@ -3727,6 +3828,9 @@ ALTER TABLE "public"."knowledge_base" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."modules" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."monitoring_events" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."online_payments" ENABLE ROW LEVEL SECURITY;
 
 
@@ -3780,7 +3884,19 @@ ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."app_config";
 
 
 
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."app_logs";
+
+
+
 ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."device_sessions";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."monitoring_events";
+
+
+
+ALTER PUBLICATION "supabase_realtime" ADD TABLE ONLY "public"."online_payments";
 
 
 
@@ -4358,6 +4474,18 @@ GRANT ALL ON FUNCTION "public"."cascade_course_rename"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."cleanup_monitoring_events"() TO "anon";
+GRANT ALL ON FUNCTION "public"."cleanup_monitoring_events"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cleanup_monitoring_events"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."count_online_users"("since" timestamp with time zone) TO "anon";
+GRANT ALL ON FUNCTION "public"."count_online_users"("since" timestamp with time zone) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."count_online_users"("since" timestamp with time zone) TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."create_payment_record"("p_checkout_id" "text", "p_customer_email" "text", "p_customer_name" "text", "p_customer_phone" "text", "p_amount" integer, "p_currency" "text", "p_duration_days" integer, "p_checkout_url" "text", "p_success_url" "text", "p_failure_url" "text", "p_metadata" "jsonb") TO "service_role";
@@ -4720,6 +4848,12 @@ GRANT ALL ON TABLE "public"."model_usage_stats" TO "service_role";
 GRANT ALL ON TABLE "public"."modules" TO "anon";
 GRANT ALL ON TABLE "public"."modules" TO "authenticated";
 GRANT ALL ON TABLE "public"."modules" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."monitoring_events" TO "anon";
+GRANT ALL ON TABLE "public"."monitoring_events" TO "authenticated";
+GRANT ALL ON TABLE "public"."monitoring_events" TO "service_role";
 
 
 
