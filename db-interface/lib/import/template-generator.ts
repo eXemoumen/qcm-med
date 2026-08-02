@@ -212,12 +212,12 @@ export function downloadJsonTemplate(): void {
       instructions: "Remplacez les exemples par vos propres questions puis uploadez le fichier.",
       required_fields: ["year", "module_name", "exam_type", "exam_year", "number", "question_text", "answers"],
       conditional_fields: {
-        sub_discipline: "OBLIGATOIRE pour les modules UEI (ex: Appareil Digestif, Appareil Cardio-vasculaire, etc.). Exexmples de sous-disciplines: Anatomie, Histologie, Physiologie, Biochimie, Biophysique."
+        sub_discipline: "OBLIGATOIRE pour les modules UEI (ex: Appareil Digestif, Appareil Cardio-vasculaire, etc.). Exemples de sous-disciplines: Anatomie, Histologie, Physiologie, Biochimie, Biophysique."
       },
       optional_fields: ["sub_discipline", "unity_name", "cours", "faculty_source", "explanation", "speciality"],
       field_aliases: {
-        sub_discipline: ["sub_discipline", "sous_discipline", "sub_module", "sous_module"],
-        unity_name: ["unity_name", "unite", "unity", "qst_unite"],
+        sub_discipline: ["sub_discipline", "sous_discipline", "sub_module", "sous_module", "qst_sub_module"],
+        unity_name: ["unity_name", "unite", "unity", "nom_unite", "qst_unite"],
         module_name: ["module_name", "module"],
         exam_type: ["exam_type", "type_examen"],
         exam_year: ["exam_year", "promo"]
@@ -231,17 +231,35 @@ export function downloadJsonTemplate(): void {
         exam_type: "EMD1",
         exam_year: 2024,
         number: 1,
-        question_text: "Le muscle deltoïde s'insère sur l'acromion, le tiers latéral de la clavicule et le ligament coraco-acromial. Son innervation est assurée par :",
-        cours: ["Myologie"],
+        question_text: "Le muscle deltoïde s'insère sur l'acromion, le tiers latéral de la clavicule et l'épine de la scapula. Son innervation principale est assurée par :",
+        cours: ["Myologie du membre supérieur"],
         faculty_source: "fac_mere",
-        explanation: "Le deltoïde est innervé par le nerf axillaire (C5, C6).",
+        explanation: "Le muscle deltoïde est innervé par le nerf axillaire (C5-C6), branche terminale du faisceau postérieur du plexus brachial.",
         answers: [
           { option_label: "A", answer_text: "Le nerf radial", is_correct: false, display_order: 1 },
           { option_label: "B", answer_text: "Le nerf axillaire", is_correct: true, display_order: 2 },
           { option_label: "C", answer_text: "Le nerf musculocutané", is_correct: false, display_order: 3 },
           { option_label: "D", answer_text: "Le nerf médian", is_correct: false, display_order: 4 },
-          { option_label: "E", answer_text: "Le nerf ulnaire", is_correct: false, display_order: 5 },
-        ],
+          { option_label: "E", answer_text: "Le nerf ulnaire", is_correct: false, display_order: 5 }
+        ]
+      },
+      {
+        year: "1",
+        module_name: "Histologie",
+        exam_type: "EMD",
+        exam_year: 2024,
+        number: 2,
+        question_text: "Concernant les épithéliums de revêtement simples pavimenteux, quelle est la proposition exacte ?",
+        cours: ["Tissu épithélial"],
+        faculty_source: "fac_mere",
+        explanation: "L'endothélium vasculaire et le mésothélium des séreuses sont des épithéliums pavimenteux simples.",
+        answers: [
+          { option_label: "A", answer_text: "Ils bordent la lumière de l'estomac", is_correct: false, display_order: 1 },
+          { option_label: "B", answer_text: "Ils constituent l'endothélium des vaisseaux sanguins", is_correct: true, display_order: 2 },
+          { option_label: "C", answer_text: "Ils possèdent des cils vibratiles à leur pôle apical", is_correct: false, display_order: 3 },
+          { option_label: "D", answer_text: "Ils sont formés de plusieurs couches de cellules superposées", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "Ils sont caractéristiques des voies urinaires", is_correct: false, display_order: 5 }
+        ]
       },
       {
         year: "2",
@@ -251,34 +269,114 @@ export function downloadJsonTemplate(): void {
         exam_type: "EMD",
         exam_year: 2024,
         number: 1,
-        question_text: "Le canal cholédoque passe derrière le premier duodénum et se termine dans :",
-        cours: ["Anatomie digestive"],
+        question_text: "Le canal cholédoque s'abouche au niveau du duodénum en s'unissant au canal pancréatique principal au niveau de :",
+        cours: ["Anatomie du foie et des voies biliaires"],
         faculty_source: "fac_mere",
-        explanation: "Le canal cholédoque s'abouche au niveau de la deuxième portion du duodénum (D2).",
+        explanation: "Le canal cholédoque rejoint le canal de Wirsung au niveau de l'ampoule de Vater dans le deuxième duodénum (D2).",
         answers: [
-          { option_label: "A", answer_text: "Le duodénum", is_correct: true, display_order: 1 },
-          { option_label: "B", answer_text: "L'estomac", is_correct: false, display_order: 2 },
-          { option_label: "C", answer_text: "La rate", is_correct: false, display_order: 3 },
-          { option_label: "D", answer_text: "Le mésentère", is_correct: false, display_order: 4 },
-          { option_label: "E", answer_text: "Le foie", is_correct: false, display_order: 5 },
-        ],
+          { option_label: "A", answer_text: "La papille duodénale majeure (ampoule de Vater) dans D2", is_correct: true, display_order: 1 },
+          { option_label: "B", answer_text: "La papille duodénale mineure dans D1", is_correct: false, display_order: 2 },
+          { option_label: "C", answer_text: "L'angle de Treitz", is_correct: false, display_order: 3 },
+          { option_label: "D", answer_text: "Le genu inferius dans D3", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "Le sphincter de Cardia", is_correct: false, display_order: 5 }
+        ]
       },
       {
         year: "2",
-        module_name: "Génétique",
+        module_name: "Appareil Digestif",
+        sub_discipline: "Physiologie",
+        unity_name: "Appareil Digestif",
+        exam_type: "EMD",
+        exam_year: 2024,
+        number: 2,
+        question_text: "Quelle hormone digestive est sécrétée par les cellules G antrales en réponse à la présence de peptides dans l'estomac ?",
+        cours: ["Physiologie de la sécrétion gastrique"],
+        faculty_source: "annexe_biskra",
+        explanation: "La gastrine est produite par les cellules G antrales et stimule la sécrétion d'acide chlorhydrique par les cellules pariétales.",
+        answers: [
+          { option_label: "A", answer_text: "La sécrétine", is_correct: false, display_order: 1 },
+          { option_label: "B", answer_text: "La cholécystokinine (CCK)", is_correct: false, display_order: 2 },
+          { option_label: "C", answer_text: "La gastrine", is_correct: true, display_order: 3 },
+          { option_label: "D", answer_text: "Le somatostatine", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "Le motiline", is_correct: false, display_order: 5 }
+        ]
+      },
+      {
+        year: "2",
+        module_name: "Appareil Cardio-vasculaire et Respiratoire",
+        sub_discipline: "Physiologie",
+        unity_name: "Appareil Cardio-vasculaire et Respiratoire",
+        exam_type: "EMD",
+        exam_year: 2023,
+        number: 5,
+        question_text: "Au cours du cycle cardiaque, la fermeture des valves atrioventriculaires (mitrale et tricuspide) correspond à :",
+        cours: ["Physiologie cardiaque et révolution cardiaque"],
+        faculty_source: "fac_mere",
+        explanation: "La fermeture des valves atrioventriculaires au début de la systole ventriculaire produit le premier bruit cardiaque (B1).",
+        answers: [
+          { option_label: "A", answer_text: "Le premier bruit cardiaque (B1)", is_correct: true, display_order: 1 },
+          { option_label: "B", answer_text: "Le deuxième bruit cardiaque (B2)", is_correct: false, display_order: 2 },
+          { option_label: "C", answer_text: "La fin de la systole ventriculaire", is_correct: false, display_order: 3 },
+          { option_label: "D", answer_text: "L'ouverture des valves sigmoïdes aortique et pulmonaire", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "La relaxation isovolumétrique", is_correct: false, display_order: 5 }
+        ]
+      },
+      {
+        year: "2",
+        module_name: "Immunologie",
+        exam_type: "EMD",
+        exam_year: 2024,
+        number: 10,
+        question_text: "Quelle classe d'immunoglobulines est la seule capable de traverser la barrière placentaire chez l'Homme ?",
+        cours: ["Structure et fonctions des immunoglobulines"],
+        faculty_source: "fac_mere",
+        explanation: "Les IgG sont les seules immunoglobulines qui traversent le placenta grâce au récepteur néonatal FcRn.",
+        answers: [
+          { option_label: "A", answer_text: "IgM", is_correct: false, display_order: 1 },
+          { option_label: "B", answer_text: "IgA", "is_correct": false, display_order: 2 },
+          { option_label: "C", answer_text: "IgG", "is_correct": true, display_order: 3 },
+          { option_label: "D", answer_text: "IgE", "is_correct": false, display_order: 4 },
+          { option_label: "E", answer_text: "IgD", "is_correct": false, display_order: 5 }
+        ]
+      },
+      {
+        year: "3",
+        module_name: "Appareil Neurologique, Locomoteur et Cutané",
+        sub_discipline: "Sémiologie",
+        unity_name: "Appareil Neurologique, Locomoteur et Cutané",
+        exam_type: "EMD",
+        exam_year: 2024,
+        number: 3,
+        question_text: "Le signe de Babinski (réflexe cutané-plantaire en extension du gros orteil) est pathognomique d'une atteinte de :",
+        cours: ["Sémiologie du syndrome pyramidal"],
+        faculty_source: "fac_mere",
+        explanation: "Le signe de Babinski traduit un syndrome pyramidal (atteinte du faisceau cortico-spinal).",
+        answers: [
+          { option_label: "A", answer_text: "La voie cérébelleuse", is_correct: false, display_order: 1 },
+          { option_label: "B", answer_text: "Le faisceau pyramidal (voie cortico-spinale)", is_correct: true, display_order: 2 },
+          { option_label: "C", answer_text: "Les cordons postérieurs de la moelle", is_correct: false, display_order: 3 },
+          { option_label: "D", answer_text: "Le nerf sciatique poplité externe", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "Le système extrapyramidal", is_correct: false, display_order: 5 }
+        ]
+      },
+      {
+        year: "3",
+        module_name: "Pharmacologie",
         exam_type: "EMD",
         exam_year: 2024,
         number: 1,
-        question_text: "La loi de Mendel qui stipule que les deux allèles d'un gène se séparent lors de la formation des gamètes s'appelle :",
-        cours: ["Génétique mendélienne"],
+        question_text: "Parmi les familles d'antibiotiques suivantes, laquelle agit en inhibant la synthèse de la paroi bactérienne par fixation aux PLP (Protéines Liant la Pénicilline) ?",
+        cours: ["Pharmacologie des bêta-lactamines"],
+        faculty_source: "annexe_khenchela",
+        explanation: "Les bêta-lactamines (pénicillines, céphalosporines) bloquent la transpeptidation de la paroi peptidoglycane en se fixant aux PLP.",
         answers: [
-          { option_label: "A", answer_text: "La dominance", is_correct: false, display_order: 1 },
-          { option_label: "B", answer_text: "La ségrégation", is_correct: true, display_order: 2 },
-          { option_label: "C", answer_text: "La codominance", is_correct: false, display_order: 3 },
-          { option_label: "D", answer_text: "La liaison", is_correct: false, display_order: 4 },
-          { option_label: "E", answer_text: "La mutation", is_correct: false, display_order: 5 },
-        ],
-      },
+          { option_label: "A", answer_text: "Les Aminosides", is_correct: false, display_order: 1 },
+          { option_label: "B", answer_text: "Les Bêta-lactamines", is_correct: true, display_order: 2 },
+          { option_label: "C", answer_text: "Les Fluoroquinolones", is_correct: false, display_order: 3 },
+          { option_label: "D", answer_text: "Les Macrolides", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "Les Phénicolés", is_correct: false, display_order: 5 }
+        ]
+      }
     ],
   };
 
