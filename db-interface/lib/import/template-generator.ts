@@ -211,6 +211,17 @@ export function downloadJsonTemplate(): void {
       format: "Ce fichier contient des exemples de questions au format JSON.",
       instructions: "Remplacez les exemples par vos propres questions puis uploadez le fichier.",
       required_fields: ["year", "module_name", "exam_type", "exam_year", "number", "question_text", "answers"],
+      conditional_fields: {
+        sub_discipline: "OBLIGATOIRE pour les modules UEI (ex: Appareil Digestif, Appareil Cardio-vasculaire, etc.). Exexmples de sous-disciplines: Anatomie, Histologie, Physiologie, Biochimie, Biophysique."
+      },
+      optional_fields: ["sub_discipline", "unity_name", "cours", "faculty_source", "explanation", "speciality"],
+      field_aliases: {
+        sub_discipline: ["sub_discipline", "sous_discipline", "sub_module", "sous_module"],
+        unity_name: ["unity_name", "unite", "unity", "qst_unite"],
+        module_name: ["module_name", "module"],
+        exam_type: ["exam_type", "type_examen"],
+        exam_year: ["exam_year", "promo"]
+      },
       answer_format: "Chaque réponse doit avoir: option_label (A-E), answer_text, is_correct (boolean), display_order (1-5)",
     },
     questions: [
@@ -230,6 +241,26 @@ export function downloadJsonTemplate(): void {
           { option_label: "C", answer_text: "Le nerf musculocutané", is_correct: false, display_order: 3 },
           { option_label: "D", answer_text: "Le nerf médian", is_correct: false, display_order: 4 },
           { option_label: "E", answer_text: "Le nerf ulnaire", is_correct: false, display_order: 5 },
+        ],
+      },
+      {
+        year: "2",
+        module_name: "Appareil Digestif",
+        sub_discipline: "Anatomie",
+        unity_name: "Appareil Digestif",
+        exam_type: "EMD",
+        exam_year: 2024,
+        number: 1,
+        question_text: "Le canal cholédoque passe derrière le premier duodénum et se termine dans :",
+        cours: ["Anatomie digestive"],
+        faculty_source: "fac_mere",
+        explanation: "Le canal cholédoque s'abouche au niveau de la deuxième portion du duodénum (D2).",
+        answers: [
+          { option_label: "A", answer_text: "Le duodénum", is_correct: true, display_order: 1 },
+          { option_label: "B", answer_text: "L'estomac", is_correct: false, display_order: 2 },
+          { option_label: "C", answer_text: "La rate", is_correct: false, display_order: 3 },
+          { option_label: "D", answer_text: "Le mésentère", is_correct: false, display_order: 4 },
+          { option_label: "E", answer_text: "Le foie", is_correct: false, display_order: 5 },
         ],
       },
       {

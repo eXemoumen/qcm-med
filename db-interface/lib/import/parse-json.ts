@@ -9,16 +9,31 @@ interface ExportFormatQuestion {
   module_name?: string;
   module?: string;
   sub_discipline?: string;
+  sous_discipline?: string;
+  sub_module?: string;
+  sous_module?: string;
+  qst_sub_module?: string;
   exam_type?: string;
+  type_examen?: string;
   exam_year?: number | string;
+  promo?: number | string;
   number?: number | string;
+  numéro?: number | string;
   question_text?: string;
+  question?: string;
   cours?: string[];
   speciality?: string;
   unity_name?: string;
+  unite?: string;
+  unity?: string;
+  nom_unite?: string;
+  qst_unite?: string;
   module_type?: string;
+  type_module?: string;
   faculty_source?: string;
+  source?: string;
   explanation?: string;
+  explication?: string;
   answers?: Array<{
     label?: string;
     option_label?: string;
@@ -31,22 +46,47 @@ interface ExportFormatQuestion {
 
 interface FlatFormatQuestion {
   year?: string | number;
+  study_year?: string | number;
   module_name?: string;
+  module?: string;
   sub_discipline?: string;
+  sous_discipline?: string;
+  sub_module?: string;
+  sous_module?: string;
+  qst_sub_module?: string;
   exam_type?: string;
+  type_examen?: string;
   exam_year?: number | string;
+  promo?: number | string;
   number?: number | string;
+  numéro?: number | string;
   question_text?: string;
+  question?: string;
   answer_a?: string;
   answer_b?: string;
   answer_c?: string;
   answer_d?: string;
   answer_e?: string;
+  réponse_a?: string;
+  réponse_b?: string;
+  réponse_c?: string;
+  réponse_d?: string;
+  réponse_e?: string;
   correct_answers?: string;
+  réponses_correctes?: string;
   cours?: string[];
   speciality?: string;
+  unity_name?: string;
+  unite?: string;
+  unity?: string;
+  nom_unite?: string;
+  qst_unite?: string;
+  module_type?: string;
+  type_module?: string;
   faculty_source?: string;
+  source?: string;
   explanation?: string;
+  explication?: string;
 }
 
 function isExportFormat(q: Record<string, unknown>): boolean {
@@ -54,7 +94,7 @@ function isExportFormat(q: Record<string, unknown>): boolean {
 }
 
 function isFlatFormat(q: Record<string, unknown>): boolean {
-  return 'answer_a' in q || 'answer_b' in q || 'correct_answers' in q;
+  return 'answer_a' in q || 'answer_b' in q || 'correct_answers' in q || 'réponse_a' in q || 'réponse_b' in q || 'réponses_correctes' in q;
 }
 
 function safeParseInt(val: unknown): number {
@@ -80,13 +120,15 @@ function buildAnswersFromExport(
 }
 
 function buildAnswersFromFlat(q: FlatFormatQuestion): CreateQuestionData['answers'] {
-  const correctLetters = parseCorrectAnswers(q.correct_answers || '');
+  const correctRaw = q.correct_answers || q.réponses_correctes || '';
+  const correctLetters = parseCorrectAnswers(correctRaw);
   const labels = ['A', 'B', 'C', 'D', 'E'] as const;
   const answers: CreateQuestionData['answers'] = [];
 
   for (let i = 0; i < labels.length; i++) {
-    const key = `answer_${labels[i].toLowerCase()}` as keyof FlatFormatQuestion;
-    const text = q[key];
+    const keyEn = `answer_${labels[i].toLowerCase()}` as keyof FlatFormatQuestion;
+    const keyFr = `réponse_${labels[i].toLowerCase()}` as keyof FlatFormatQuestion;
+    const text = q[keyEn] || q[keyFr];
     if (text && String(text).trim()) {
       answers.push({
         option_label: labels[i],
@@ -101,35 +143,47 @@ function buildAnswersFromFlat(q: FlatFormatQuestion): CreateQuestionData['answer
 }
 
 function normalizeExportQuestion(q: ExportFormatQuestion): CreateQuestionData {
+  const subDisc = q.sub_discipline || q.sous_discipline || q.sub_module || q.sous_module || q.qst_sub_module;
+  const unityName = q.unity_name || q.unite || q.unity || q.nom_unite || q.qst_unite;
+  const moduleType = q.module_type || q.type_module;
+
   return {
     year: String(q.year || q.study_year || '').trim(),
     module_name: (q.module_name || q.module || '').trim(),
-    sub_discipline: q.sub_discipline ? String(q.sub_discipline).trim() : undefined,
-    exam_type: (q.exam_type || '').trim(),
-    exam_year: safeParseInt(q.exam_year),
-    number: safeParseInt(q.number),
-    question_text: (q.question_text || '').trim(),
+    sub_discipline: subDisc ? String(subDisc).trim() : undefined,
+    unity_name: unityName ? String(unityName).trim() : undefined,
+    module_type: moduleType ? String(moduleType).trim() : undefined,
+    exam_type: (q.exam_type || q.type_examen || '').trim(),
+    exam_year: safeParseInt(q.exam_year || q.promo),
+    number: safeParseInt(q.number || q.numéro),
+    question_text: (q.question_text || q.question || '').trim(),
     speciality: q.speciality || undefined,
     cours: Array.isArray(q.cours) ? q.cours.map(String).filter(Boolean) : undefined,
-    faculty_source: q.faculty_source as any || undefined,
-    explanation: q.explanation || undefined,
+    faculty_source: (q.faculty_source || q.source) as any || undefined,
+    explanation: q.explanation || q.explication || undefined,
     answers: buildAnswersFromExport(q.answers),
   };
 }
 
 function normalizeFlatQuestion(q: FlatFormatQuestion): CreateQuestionData {
+  const subDisc = q.sub_discipline || q.sous_discipline || q.sub_module || q.sous_module || q.qst_sub_module;
+  const unityName = q.unity_name || q.unite || q.unity || q.nom_unite || q.qst_unite;
+  const moduleType = q.module_type || q.type_module;
+
   return {
-    year: String(q.year || '').trim(),
-    module_name: (q.module_name || '').trim(),
-    sub_discipline: q.sub_discipline ? String(q.sub_discipline).trim() : undefined,
-    exam_type: (q.exam_type || '').trim(),
-    exam_year: safeParseInt(q.exam_year),
-    number: safeParseInt(q.number),
-    question_text: (q.question_text || '').trim(),
+    year: String(q.year || q.study_year || '').trim(),
+    module_name: (q.module_name || q.module || '').trim(),
+    sub_discipline: subDisc ? String(subDisc).trim() : undefined,
+    unity_name: unityName ? String(unityName).trim() : undefined,
+    module_type: moduleType ? String(moduleType).trim() : undefined,
+    exam_type: (q.exam_type || q.type_examen || '').trim(),
+    exam_year: safeParseInt(q.exam_year || q.promo),
+    number: safeParseInt(q.number || q.numéro),
+    question_text: (q.question_text || q.question || '').trim(),
     speciality: q.speciality || undefined,
     cours: Array.isArray(q.cours) ? q.cours.map(String).filter(Boolean) : undefined,
-    faculty_source: q.faculty_source as any || undefined,
-    explanation: q.explanation || undefined,
+    faculty_source: (q.faculty_source || q.source) as any || undefined,
+    explanation: q.explanation || q.explication || undefined,
     answers: buildAnswersFromFlat(q),
   };
 }
